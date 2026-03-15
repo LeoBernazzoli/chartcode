@@ -48,6 +48,8 @@ pub fn analyze_content(text: &str, existing_ontology: &Ontology) -> PromptTask {
     let prompt = format!(
         r#"Analyze this text and suggest an ontology (entity types and relation types) appropriate for the domain.
 
+IMPORTANT: Always include a "Person" entity type for any named individuals, researchers, authors, or historical figures mentioned in the text. This is mandatory.
+
 {ontology_context}
 
 Text:
@@ -131,7 +133,11 @@ Rules:
 - Reuse existing entity names when referring to the same concept
 - canonical_name should be a concise noun phrase (1-7 words)
 - Do NOT extract generic words that are not domain-specific
-- Each entity must have a definition based on the text context
+- Each entity must have a definition based ONLY on what the text says about it. Do NOT confuse definitions between similar concepts
+- Extract ALL named people, researchers, scientists, and historical figures as Person entities
+- Relation direction matters: "A subfield_of B" means A is a subfield of B. "A uses B" means A uses B. Do NOT invert
+- Do NOT create duplicate relations (same source, target, and type)
+- Do NOT create self-referencing relations (source = target)
 
 Text:
 {text}

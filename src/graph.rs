@@ -48,6 +48,7 @@ pub struct IngestReport {
     pub merged: usize,
     pub rejected: usize,
     pub edges_added: usize,
+    pub edges_deduped: usize,
     pub errors: Vec<String>,
 }
 
@@ -172,7 +173,9 @@ impl KnowledgeGraph {
 
     // ── Edge Operations ─────────────────────────────────────────
 
-    /// Add an edge between two nodes.
+    /// Add an edge between two nodes. Deduplicates: if an edge with the
+    /// same (from, to, relation_type) already exists, keeps the one with
+    /// higher confidence and merges evidence.
     pub fn add_edge(&mut self, mut edge: Edge) -> Result<u64, GraphError> {
         if !self.nodes.contains_key(&edge.from) {
             return Err(GraphError::NodeNotFound(format!("node id {}", edge.from)));
@@ -182,6 +185,34 @@ impl KnowledgeGraph {
         }
         if !self.ontology.is_valid_edge_type(&edge.relation_type) {
             return Err(GraphError::InvalidEdgeType(edge.relation_type.clone()));
+        }
+
+        // Self-loop check
+        if edge.from == edge.to {
+            return Err(GraphError::NodeNotFound("self-loop not allowed".into()));
+        }
+
+        // Duplicate check: same (from, to, relation_type)
+        let rel_norm = edge.relation_type.to_lowercase();
+        for existing in &mut self.edges {
+            if existing.from == edge.from
+                && existing.to == edge.to
+                && existing.relation_type.to_lowercase() == rel_norm
+            {
+                // Merge: keep higher confidence, merge evidence
+                if edge.confidence > existing.confidence {
+                    existing.confidence = edge.confidence;
+                }
+                for ev in &edge.evidence {
+                    let already = existing.evidence.iter().any(|e| {
+                        e.text_snippet == ev.text_snippet
+                    });
+                    if !already {
+                        existing.evidence.push(ev.clone());
+                    }
+                }
+                return Ok(existing.id);
+            }
         }
 
         edge.id = self.next_edge_id;
@@ -372,22 +403,38 @@ impl KnowledgeGraph {
             merged: 0,
             rejected: 0,
             edges_added: 0,
+            edges_deduped: 0,
             errors: Vec::new(),
         };
+
+        // Reject entities with empty names
+        let valid_entities: Vec<&ExtractedEntity> = extraction
+            .entities
+            .iter()
+            .filter(|e| !e.name.trim().is_empty())
+            .collect();
 
         // Map from extraction name -> resolved node ID
         let mut name_to_id: HashMap<String, NodeId> = HashMap::new();
 
         // Process entities
-        for entity in &extraction.entities {
+        for entity in &valid_entities {
             let existing_nodes: Vec<&Node> = self.nodes.values().collect();
 
             match resolver.resolve(&entity.name, &existing_nodes) {
                 Some(existing_id) => {
-                    // Merge: update definition if longer, add aliases
+                    // Merge: keep definition with higher confidence, add aliases
                     if let Some(node) = self.nodes.get_mut(&existing_id) {
-                        if entity.definition.len() > node.definition.len() {
+                        // Pick definition: prefer higher confidence, then longer
+                        if entity.confidence > node.confidence
+                            || (entity.confidence == node.confidence
+                                && entity.definition.len() > node.definition.len())
+                        {
                             node.definition = entity.definition.clone();
+                        }
+                        // Update confidence to max
+                        if entity.confidence > node.confidence {
+                            node.confidence = entity.confidence;
                         }
                         for alias in &entity.aliases {
                             let norm = alias.trim().to_lowercase();
@@ -408,7 +455,7 @@ impl KnowledgeGraph {
                 }
                 None => {
                     // New entity
-                    let node = Node::new(
+                    let mut new_node = Node::new(
                         0, // will be assigned in add_node
                         entity.name.clone(),
                         entity.entity_type.clone(),
@@ -416,7 +463,6 @@ impl KnowledgeGraph {
                         entity.confidence,
                         entity.source.clone(),
                     );
-                    let mut new_node = node;
                     new_node.aliases = entity.aliases.clone();
                     new_node.evidence = entity.evidence.clone();
 
@@ -478,8 +524,15 @@ impl KnowledgeGraph {
             );
             edge.evidence = relation.evidence.clone();
 
+            let edges_before = self.edges.len();
             match self.add_edge(edge) {
-                Ok(_) => report.edges_added += 1,
+                Ok(_) => {
+                    if self.edges.len() > edges_before {
+                        report.edges_added += 1;
+                    } else {
+                        report.edges_deduped += 1;
+                    }
+                }
                 Err(e) => {
                     report
                         .errors
@@ -716,5 +769,91 @@ mod tests {
         let stats = kg.stats();
         assert_eq!(stats.node_count, 3);
         assert_eq!(stats.edge_count, 2);
+    }
+
+    #[test]
+    fn test_edge_dedup() {
+        let mut kg = sample_graph();
+        let marco = kg.lookup("Marco Bianchi").unwrap().id;
+        let alpha = kg.lookup("Project Alpha").unwrap().id;
+
+        // Try adding duplicate edge (same from, to, relation_type)
+        let dup = Edge::new(0, marco, alpha, "works_on".into(), 0.95,
+            Source::Document { name: "new.pdf".into(), page: Some(3) });
+        let result = kg.add_edge(dup);
+        assert!(result.is_ok());
+        // Edge count should NOT increase (deduped)
+        assert_eq!(kg.edges.len(), 2);
+    }
+
+    #[test]
+    fn test_self_loop_rejected() {
+        let mut kg = sample_graph();
+        let marco = kg.lookup("Marco Bianchi").unwrap().id;
+
+        let self_edge = Edge::new(0, marco, marco, "related_to".into(), 0.5, Source::Memory);
+        assert!(kg.add_edge(self_edge).is_err());
+    }
+
+    #[test]
+    fn test_ingest_edge_dedup_report() {
+        let mut kg = sample_graph();
+
+        let extraction = ExtractionResult {
+            entities: vec![],
+            relations: vec![
+                ExtractedRelation {
+                    source: "Marco Bianchi".into(),
+                    target: "Project Alpha".into(),
+                    relation_type: "works_on".into(),
+                    confidence: 0.9,
+                    source_ref: Source::Memory,
+                    evidence: vec![],
+                },
+                ExtractedRelation {
+                    source: "Marco Bianchi".into(),
+                    target: "Project Alpha".into(),
+                    relation_type: "works_on".into(),
+                    confidence: 0.8,
+                    source_ref: Source::Memory,
+                    evidence: vec![],
+                },
+            ],
+        };
+
+        let report = kg.ingest(&extraction);
+        assert_eq!(report.edges_added, 0); // both deduped (original already exists)
+        assert_eq!(report.edges_deduped, 2);
+    }
+
+    #[test]
+    fn test_definition_merge_by_confidence() {
+        let mut kg = KnowledgeGraph::new();
+
+        let n1 = Node::new(0, "AI".into(), "concept".into(),
+            "Short def".into(), 0.7, Source::Memory);
+        kg.add_node(n1).unwrap();
+
+        let extraction = ExtractionResult {
+            entities: vec![
+                ExtractedEntity {
+                    name: "AI".into(),
+                    entity_type: "concept".into(),
+                    definition: "Better definition from higher confidence source".into(),
+                    aliases: vec![],
+                    confidence: 0.95,
+                    source: Source::Memory,
+                    evidence: vec![],
+                },
+            ],
+            relations: vec![],
+        };
+
+        let report = kg.ingest(&extraction);
+        assert_eq!(report.merged, 1);
+
+        let ai = kg.lookup("AI").unwrap();
+        assert!(ai.definition.contains("Better definition"));
+        assert_eq!(ai.confidence, 0.95);
     }
 }

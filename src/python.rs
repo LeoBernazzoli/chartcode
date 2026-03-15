@@ -107,6 +107,7 @@ impl PyKnowledgeGraph {
         dict.set_item("merged", report.merged)?;
         dict.set_item("rejected", report.rejected)?;
         dict.set_item("edges_added", report.edges_added)?;
+        dict.set_item("edges_deduped", report.edges_deduped)?;
         dict.set_item("errors", &report.errors)?;
         Ok(dict)
     }
@@ -136,6 +137,7 @@ impl PyKnowledgeGraph {
         dict.set_item("merged", report.merged)?;
         dict.set_item("rejected", report.rejected)?;
         dict.set_item("edges_added", report.edges_added)?;
+        dict.set_item("edges_deduped", report.edges_deduped)?;
         dict.set_item("errors", &report.errors)?;
         Ok(dict)
     }
@@ -160,6 +162,7 @@ impl PyKnowledgeGraph {
         dict.set_item("merged", report.merged)?;
         dict.set_item("rejected", report.rejected)?;
         dict.set_item("edges_added", report.edges_added)?;
+        dict.set_item("edges_deduped", report.edges_deduped)?;
         dict.set_item("errors", &report.errors)?;
         Ok(dict)
     }
