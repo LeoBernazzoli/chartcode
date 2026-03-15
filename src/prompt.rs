@@ -84,6 +84,7 @@ pub fn prepare_extraction(
     let entity_types: String = ontology
         .node_types
         .iter()
+        .take(15)
         .map(|t| format!("- {}: {}", t.name, t.description))
         .collect::<Vec<_>>()
         .join("\n");
@@ -91,6 +92,7 @@ pub fn prepare_extraction(
     let relation_types: String = ontology
         .edge_types
         .iter()
+        .take(15)
         .map(|t| {
             format!(
                 "- {}: {} [{} -> {}]",
@@ -106,12 +108,14 @@ pub fn prepare_extraction(
     let existing = if existing_entities.is_empty() {
         "None yet.".to_string()
     } else {
-        existing_entities
-            .iter()
-            .take(100)
-            .map(|e| format!("- {}", e))
-            .collect::<Vec<_>>()
-            .join("\n")
+        let shown = existing_entities.iter().take(30);
+        let list: Vec<String> = shown.map(|e| format!("- {}", e)).collect();
+        let remainder = existing_entities.len().saturating_sub(30);
+        let mut result = list.join("\n");
+        if remainder > 0 {
+            result.push_str(&format!("\n... and {} more entities in the graph", remainder));
+        }
+        result
     };
 
     let prompt = format!(
