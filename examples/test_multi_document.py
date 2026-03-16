@@ -285,13 +285,25 @@ def main():
     print("\n[5/5] Manual: DataFlow Administrator Guide")
     process_document(kg, SOFTWARE_MANUAL, "dataflow_admin_guide.pdf", "manual")
 
-    # ── Save ─────────────────────────────────────────────────────
+    # ── Post-processing ────────────────────────────────────────
+    print("\n[6/6] Post-processing: connecting orphans and discovering cross-doc links...")
+    orphans_connected = kg.connect_orphans()
+    cross_doc = kg.discover_connections()
+    print(f"  Orphan connections: {orphans_connected}")
+    print(f"  Cross-doc discoveries: {cross_doc}")
+
     kg.save()
 
     # ── Quality Analysis ─────────────────────────────────────────
     print("\n" + "=" * 70)
     print("  Quality Analysis")
     print("=" * 70)
+
+    q = json.loads(kg.quality_metrics())
+    print(f"\nQuality Metrics:")
+    print(f"  Orphan ratio: {q['orphan_ratio']:.1%}")
+    print(f"  related_to ratio: {q['related_to_ratio']:.1%}")
+    print(f"  Avg degree: {q['avg_degree']:.1f}")
 
     stats = json.loads(kg.stats())
     print(f"\nTotal: {stats['node_count']} nodes, {stats['edge_count']} edges, "
