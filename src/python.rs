@@ -421,8 +421,10 @@ fn parse_claude_project(project_path: &str) -> Vec<(String, usize, String)> {
 }
 
 /// Get the full text of a Claude Code conversation, ready for KG extraction.
+/// mode: "all" (default), "user" (user messages only), "substantive" (sampled)
 #[pyfunction]
-fn get_claude_conversation_text(project_path: &str, session_id: &str, max_chars: usize) -> Option<String> {
+#[pyo3(signature = (project_path, session_id, max_chars, mode="substantive"))]
+fn get_claude_conversation_text(project_path: &str, session_id: &str, max_chars: usize, mode: &str) -> Option<String> {
     let path = std::path::Path::new(project_path);
     let files = crate::claude_parser::find_conversations(path);
 
@@ -432,7 +434,11 @@ fn get_claude_conversation_text(project_path: &str, session_id: &str, max_chars:
             .unwrap_or("");
         if filename.contains(session_id) {
             if let Some(conv) = crate::claude_parser::parse_conversation(&file) {
-                return Some(conv.substantive_text(max_chars));
+                return Some(match mode {
+                    "user" => conv.user_messages_text(max_chars),
+                    "all" => conv.to_text(max_chars),
+                    _ => conv.substantive_text(max_chars),
+                });
             }
         }
     }

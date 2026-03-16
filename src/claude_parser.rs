@@ -112,6 +112,52 @@ impl Conversation {
         text
     }
 
+    /// Get only user messages (where decisions and key concepts live).
+    /// Best for project ingestion - captures all decisions without assistant verbosity.
+    pub fn user_messages_text(&self, max_chars: usize) -> String {
+        let mut text = String::new();
+        for msg in &self.messages {
+            if msg.role != "user" {
+                continue;
+            }
+            if msg.content.len() < 15 {
+                continue;
+            }
+            // Skip system/command messages
+            let content_lower = msg.content.to_lowercase();
+            if content_lower.starts_with("<command")
+                || content_lower.starts_with("<task-notification")
+                || content_lower.starts_with("<local-command")
+                || content_lower.contains("tool-use-id")
+            {
+                continue;
+            }
+            // Skip extraction prompts (from automated tests)
+            if content_lower.starts_with("extract entities")
+                || content_lower.starts_with("analyze this text")
+                || content_lower.contains("return only a valid json")
+            {
+                continue;
+            }
+
+            text.push_str(&msg.content);
+            text.push_str("\n\n");
+
+            if text.len() >= max_chars {
+                break;
+            }
+        }
+        // Safe truncate
+        if text.len() > max_chars {
+            let mut end = max_chars;
+            while end > 0 && !text.is_char_boundary(end) {
+                end -= 1;
+            }
+            text.truncate(end);
+        }
+        text
+    }
+
     /// Check if this conversation is automated (e.g., from `claude -p` calls).
     pub fn is_automated(&self) -> bool {
         // Automated conversations typically have exactly 2 messages

@@ -185,11 +185,20 @@ impl KnowledgeGraph {
             }
         }
 
-        // 3. Substring match: "cell division" matches "Cell Division Process"
-        for node in self.nodes.values() {
-            let node_norm = node.normalized_name();
-            if node_norm.contains(&norm) || norm.contains(&node_norm) {
-                return Some(node);
+        // 3. Substring match: only if the search term is long enough (>=6 chars)
+        //    and the match is significant (not just matching "C" inside "Claude")
+        if norm.len() >= 6 {
+            for node in self.nodes.values() {
+                let node_norm = node.normalized_name();
+                // Search term contained in node name (e.g., "cell division" in "Cell Division Process")
+                if node_norm.contains(&norm) {
+                    return Some(node);
+                }
+                // Node name contained in search term, only if node name is >=6 chars
+                // (avoids "C" matching "Claude Code")
+                if node_norm.len() >= 6 && norm.contains(&node_norm) {
+                    return Some(node);
+                }
             }
         }
 
@@ -603,11 +612,11 @@ impl KnowledgeGraph {
 
     // ── Graph Maintenance ────────────────────────────────────────
 
-    /// Connect orphan nodes by scanning their definitions for mentions
-    /// of other entities. Creates "mentions" edges with lower confidence.
-    /// Returns the number of new connections created.
+    /// Connect orphan nodes bidirectionally:
+    /// 1. Scan orphan definitions for mentions of other entities
+    /// 2. Scan other entities' definitions for mentions of orphan names
+    /// Creates "mentions" edges. Returns the number of new connections.
     pub fn connect_orphans(&mut self) -> usize {
-        // Find orphans (nodes with no edges)
         let mut connected: std::collections::HashSet<NodeId> = std::collections::HashSet::new();
         for edge in &self.edges {
             connected.insert(edge.from);
@@ -622,47 +631,49 @@ impl KnowledgeGraph {
             return 0;
         }
 
-        // Build a lookup of all entity names -> node IDs (excluding orphans being processed)
-        let all_names: Vec<(String, NodeId)> = self.nodes.iter()
-            .map(|(id, n)| (n.name.clone(), *id))
+        // Collect all node info
+        let all_nodes: Vec<(NodeId, String, String)> = self.nodes.iter()
+            .map(|(id, n)| (*id, n.name.to_lowercase(), n.definition.to_lowercase()))
             .collect();
 
-        let mut new_edges: Vec<Edge> = Vec::new();
+        let mut new_edges: Vec<(NodeId, NodeId)> = Vec::new();
 
         for &orphan_id in &orphan_ids {
             let orphan = match self.nodes.get(&orphan_id) {
-                Some(n) => n.clone(),
+                Some(n) => n,
                 None => continue,
             };
-            let def_lower = orphan.definition.to_lowercase();
-            if def_lower.is_empty() {
-                continue;
-            }
+            let orphan_name_lower = orphan.name.to_lowercase();
+            let orphan_def_lower = orphan.definition.to_lowercase();
 
-            for (name, target_id) in &all_names {
-                if *target_id == orphan_id {
+            for (other_id, other_name, other_def) in &all_nodes {
+                if *other_id == orphan_id {
                     continue;
                 }
-                let name_lower = name.to_lowercase();
-                // Skip very short names (< 4 chars) to avoid false matches
-                if name_lower.len() < 4 {
-                    continue;
+
+                // Direction 1: orphan definition mentions other entity
+                if other_name.len() >= 4 && !orphan_def_lower.is_empty()
+                    && orphan_def_lower.contains(other_name.as_str())
+                {
+                    new_edges.push((orphan_id, *other_id));
+                    continue; // one connection per pair is enough
                 }
-                if def_lower.contains(&name_lower) {
-                    new_edges.push(Edge::new(
-                        0,
-                        orphan_id,
-                        *target_id,
-                        "mentions".to_string(),
-                        0.6,
-                        orphan.source.clone(),
-                    ));
+
+                // Direction 2: other entity's definition mentions orphan name
+                if orphan_name_lower.len() >= 4 && !other_def.is_empty()
+                    && other_def.contains(orphan_name_lower.as_str())
+                {
+                    new_edges.push((*other_id, orphan_id));
                 }
             }
         }
 
         let mut count = 0;
-        for edge in new_edges {
+        for (from, to) in new_edges {
+            let source = self.nodes.get(&from)
+                .map(|n| n.source.clone())
+                .unwrap_or(Source::Inferred);
+            let edge = Edge::new(0, from, to, "mentions".to_string(), 0.5, source);
             if self.add_edge(edge).is_ok() {
                 count += 1;
             }

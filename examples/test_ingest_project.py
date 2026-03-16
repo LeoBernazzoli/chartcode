@@ -83,7 +83,7 @@ def main():
 
     # 2. Analyze ontology from first conversation
     print(f"\n[1] Analyzing ontology from conversations...")
-    first_text = get_claude_conversation_text(PROJECT, to_process[0][0], 6000)
+    first_text = get_claude_conversation_text(PROJECT, to_process[0][0], 6000, "user")
     if not first_text:
         print("  ERROR: no text from first conversation")
         return
@@ -103,7 +103,7 @@ def main():
         print(f"\n  Conversation {i+1}/{len(to_process)} [{sid[:8]}] ({count} msgs)")
         start = time.time()
 
-        text = get_claude_conversation_text(PROJECT, sid, 40000)
+        text = get_claude_conversation_text(PROJECT, sid, 50000, "user")
         if not text:
             print("    SKIP: empty")
             continue
