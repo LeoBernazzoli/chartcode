@@ -139,6 +139,7 @@ Rules:
 - Do NOT extract generic words that are not domain-specific
 - Each entity must have a definition based ONLY on what the text says about it. Do NOT confuse definitions between similar concepts
 - Extract ALL named people, researchers, scientists, and historical figures as Person entities
+- AVOID "related_to" - it is a last resort. Always prefer a more specific relation type (subfield_of, uses, part_of, created_by, etc.). Only use related_to when NO other type fits
 - Relation direction matters: "A subfield_of B" means A is a subfield of B. "A uses B" means A uses B. Do NOT invert
 - Do NOT create duplicate relations (same source, target, and type)
 - Do NOT create self-referencing relations (source = target)

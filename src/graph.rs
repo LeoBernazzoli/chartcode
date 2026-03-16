@@ -146,12 +146,42 @@ impl KnowledgeGraph {
     }
 
     /// Lookup a node by name (exact or alias match, case-insensitive).
+    /// Falls back to substring and fuzzy matching if exact match fails.
     pub fn lookup(&self, name: &str) -> Option<&Node> {
         let norm = name.trim().to_lowercase();
-        self.index_by_name
-            .get(&norm)
-            .and_then(|ids| ids.first())
-            .and_then(|id| self.nodes.get(id))
+
+        // 1. Exact match on name or alias
+        if let Some(ids) = self.index_by_name.get(&norm) {
+            if let Some(id) = ids.first() {
+                return self.nodes.get(id);
+            }
+        }
+
+        // 2. Try common variants: singular/plural
+        let variants = [
+            if norm.ends_with('s') {
+                norm[..norm.len()-1].to_string()
+            } else {
+                format!("{}s", norm)
+            },
+        ];
+        for variant in &variants {
+            if let Some(ids) = self.index_by_name.get(variant.as_str()) {
+                if let Some(id) = ids.first() {
+                    return self.nodes.get(id);
+                }
+            }
+        }
+
+        // 3. Substring match: "cell division" matches "Cell Division Process"
+        for node in self.nodes.values() {
+            let node_norm = node.normalized_name();
+            if node_norm.contains(&norm) || norm.contains(&node_norm) {
+                return Some(node);
+            }
+        }
+
+        None
     }
 
     /// Get a node by ID.
@@ -394,6 +424,26 @@ impl KnowledgeGraph {
 
     // ── Ingestion ───────────────────────────────────────────────
 
+    /// Resolve an entity name: try exact map, then graph lookup, then fuzzy.
+    fn resolve_entity_name(
+        &self,
+        name: &str,
+        name_to_id: &HashMap<String, NodeId>,
+    ) -> Option<NodeId> {
+        // 1. Exact match in current extraction batch
+        if let Some(id) = name_to_id.get(name) {
+            return Some(*id);
+        }
+        // 2. Lookup by name/alias in graph
+        if let Some(node) = self.lookup(name) {
+            return Some(node.id);
+        }
+        // 3. Fuzzy match against all nodes
+        let resolver = EntityResolver::new(0.85);
+        let existing: Vec<&Node> = self.nodes.values().collect();
+        resolver.resolve(name, &existing)
+    }
+
     /// Ingest extracted entities and relations from an agent.
     /// Handles entity resolution, dedup, and validation.
     pub fn ingest(&mut self, extraction: &ExtractionResult) -> IngestReport {
@@ -482,35 +532,30 @@ impl KnowledgeGraph {
 
         // Process relations
         for relation in &extraction.relations {
-            let from_id = match name_to_id.get(&relation.source) {
-                Some(id) => *id,
+            // Skip self-referencing relations by name
+            if relation.source.trim().to_lowercase() == relation.target.trim().to_lowercase() {
+                report.edges_deduped += 1;
+                continue;
+            }
+
+            let from_id = match self.resolve_entity_name(&relation.source, &name_to_id) {
+                Some(id) => id,
                 None => {
-                    // Try lookup by name in graph
-                    match self.lookup(&relation.source).map(|n| n.id) {
-                        Some(id) => id,
-                        None => {
-                            report.errors.push(format!(
-                                "relation source '{}' not found",
-                                relation.source
-                            ));
-                            continue;
-                        }
-                    }
+                    report.errors.push(format!(
+                        "relation source '{}' not found",
+                        relation.source
+                    ));
+                    continue;
                 }
             };
-            let to_id = match name_to_id.get(&relation.target) {
-                Some(id) => *id,
+            let to_id = match self.resolve_entity_name(&relation.target, &name_to_id) {
+                Some(id) => id,
                 None => {
-                    match self.lookup(&relation.target).map(|n| n.id) {
-                        Some(id) => id,
-                        None => {
-                            report.errors.push(format!(
-                                "relation target '{}' not found",
-                                relation.target
-                            ));
-                            continue;
-                        }
-                    }
+                    report.errors.push(format!(
+                        "relation target '{}' not found",
+                        relation.target
+                    ));
+                    continue;
                 }
             };
 
@@ -664,6 +709,28 @@ mod tests {
         assert!(kg.lookup("Marco Bianchi").is_some());
         assert!(kg.lookup("marco bianchi").is_some());
         assert!(kg.lookup("Unknown Person").is_none());
+    }
+
+    #[test]
+    fn test_lookup_plural_singular() {
+        let mut kg = KnowledgeGraph::new();
+        kg.add_node(Node::new(0, "Neural Networks".into(), "concept".into(),
+            "test".into(), 0.9, Source::Memory)).unwrap();
+
+        // Singular matches plural
+        assert!(kg.lookup("neural network").is_some());
+        // Plural matches directly
+        assert!(kg.lookup("neural networks").is_some());
+    }
+
+    #[test]
+    fn test_lookup_substring() {
+        let mut kg = KnowledgeGraph::new();
+        kg.add_node(Node::new(0, "Cell Division Process".into(), "concept".into(),
+            "test".into(), 0.9, Source::Memory)).unwrap();
+
+        // Substring match
+        assert!(kg.lookup("cell division").is_some());
     }
 
     #[test]
