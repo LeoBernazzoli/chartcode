@@ -32,6 +32,24 @@ fn main() {
         }
         "recent" => cmd_recent(&kg_path),
         "export" => cmd_export(&kg_path),
+        "reindex" => {
+            if args.len() < 3 {
+                eprintln!("Usage: autoclaw reindex <file_path>");
+                std::process::exit(1);
+            }
+            let file_path = &args[2];
+            let code = std::fs::read_to_string(file_path).unwrap_or_else(|e| {
+                eprintln!("Cannot read {}: {}", file_path, e);
+                std::process::exit(1);
+            });
+            let mut kg = load_kg(&kg_path);
+            kg.reindex_file(file_path, &code);
+            autoclaw::save(&kg, kg_path.as_path()).unwrap_or_else(|e| {
+                eprintln!("Failed to save: {}", e);
+                std::process::exit(1);
+            });
+            eprintln!("Reindexed: {}", file_path);
+        }
         "reconcile" => {
             let mut input_json = String::new();
             std::io::Read::read_to_string(&mut std::io::stdin(), &mut input_json)

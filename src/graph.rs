@@ -256,6 +256,41 @@ impl KnowledgeGraph {
         }
     }
 
+    /// Re-index a single file: remove old code entities, parse with tree-sitter, add new ones.
+    /// Deterministic, 0 tokens, milliseconds.
+    pub fn reindex_file(&mut self, file_path: &str, source_code: &str) {
+        // Remove all code entities for this file
+        let to_remove: Vec<NodeId> = self
+            .all_nodes()
+            .filter(|n| {
+                matches!(&n.source, Source::CodeAnalysis { file } if file == file_path)
+            })
+            .map(|n| n.id)
+            .collect();
+        for id in to_remove {
+            self.remove_node(id);
+        }
+
+        // Re-parse with tree-sitter
+        let entities = crate::treesitter::parse_rust_code(source_code, file_path);
+
+        // Add new entities
+        for entity in entities {
+            let mut node = Node::new(
+                0,
+                entity.name,
+                entity.entity_type,
+                entity.definition,
+                1.0,
+                Source::CodeAnalysis {
+                    file: file_path.to_string(),
+                },
+            );
+            node.tier = crate::tier::ImportanceTier::Minor;
+            let _ = self.add_node(node);
+        }
+    }
+
     /// Get all nodes of a given type.
     pub fn nodes_by_type(&self, type_name: &str) -> Vec<&Node> {
         self.index_by_type
@@ -1142,5 +1177,38 @@ mod tests {
         let ai = kg.lookup("AI").unwrap();
         assert!(ai.definition.contains("Better definition"));
         assert_eq!(ai.confidence, 0.95);
+    }
+
+    #[test]
+    fn test_reindex_file() {
+        let mut kg = KnowledgeGraph::new();
+
+        // Initial index
+        kg.reindex_file("src/test.rs", "fn old_function() -> bool { true }");
+        assert!(kg.lookup("old_function").is_some());
+
+        // Reindex with new code — old entities should be gone
+        kg.reindex_file("src/test.rs", "fn new_function() -> String { String::new() }");
+        assert!(kg.lookup("old_function").is_none());
+        assert!(kg.lookup("new_function").is_some());
+    }
+
+    #[test]
+    fn test_reindex_doesnt_affect_other_files() {
+        let mut kg = KnowledgeGraph::new();
+
+        kg.reindex_file("src/a.rs", "fn alpha() {}");
+        kg.reindex_file("src/b.rs", "fn bravo() {}");
+        assert!(kg.lookup("alpha").is_some());
+        assert!(kg.lookup("bravo").is_some());
+
+        // Reindex only a.rs with completely different function
+        kg.reindex_file("src/a.rs", "fn charlie() {}");
+        assert!(kg.lookup("charlie").is_some());
+        assert!(kg.lookup("bravo").is_some()); // untouched
+
+        // alpha should be gone from nodes (even if stale index entry remains)
+        let alpha_exists = kg.all_nodes().any(|n| n.name == "alpha");
+        assert!(!alpha_exists);
     }
 }
