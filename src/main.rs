@@ -32,6 +32,259 @@ fn main() {
         }
         "recent" => cmd_recent(&kg_path),
         "export" => cmd_export(&kg_path),
+        "bootstrap" => {
+            let config_path = args
+                .iter()
+                .position(|a| a == "--config")
+                .and_then(|i| args.get(i + 1))
+                .map(|s| s.as_str())
+                .unwrap_or("graphocode.toml");
+
+            let config = autoclaw::config::load_config(std::path::Path::new(config_path));
+            let mut kg = load_kg(&kg_path);
+
+            let project_path = std::env::current_dir().unwrap_or_else(|_| ".".into());
+            let report = autoclaw::bootstrap::bootstrap(&mut kg, &config, &project_path);
+
+            autoclaw::save(&kg, kg_path.as_path()).unwrap_or_else(|e| {
+                eprintln!("Failed to save: {}", e);
+                std::process::exit(1);
+            });
+
+            println!("Bootstrap complete:");
+            println!("  Files indexed: {}", report.files_indexed);
+            println!("  Code entities: {}", report.code_entities);
+            println!("  Conversations found: {}", report.conversations_found);
+            println!("  Document chunks: {}", report.document_chunks.len());
+
+            if !report.conversation_texts.is_empty() {
+                println!(
+                    "\n{} conversations ready for Haiku semantic extraction.",
+                    report.conversation_texts.len()
+                );
+                println!("Run /graphocode:start to complete extraction with LLM.");
+            }
+        }
+        "impact" => {
+            if args.len() < 3 {
+                eprintln!("Usage: autoclaw impact <entity_name> [--depth N]");
+                std::process::exit(1);
+            }
+            let entity_name = &args[2];
+            let depth: usize = args
+                .iter()
+                .position(|a| a == "--depth")
+                .and_then(|i| args.get(i + 1))
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(1);
+            let kg = load_kg(&kg_path);
+            let report = autoclaw::impact::impact_analysis(&kg, entity_name, depth);
+            print!("{}", report);
+        }
+        "impact-from-diff" => {
+            if args.len() < 3 {
+                eprintln!("Usage: autoclaw impact-from-diff <tool_input_json>");
+                std::process::exit(1);
+            }
+            let tool_input = &args[2];
+            let depth: usize = args
+                .iter()
+                .position(|a| a == "--depth")
+                .and_then(|i| args.get(i + 1))
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(1);
+            let kg = load_kg(&kg_path);
+            let report = autoclaw::impact::impact_from_diff(&kg, tool_input, depth);
+            if !report.is_empty() {
+                print!("{}", report);
+            }
+        }
+        "reindex" => {
+            if args.len() < 3 {
+                eprintln!("Usage: autoclaw reindex <file_path>");
+                std::process::exit(1);
+            }
+            let file_path = &args[2];
+            let code = std::fs::read_to_string(file_path).unwrap_or_else(|e| {
+                eprintln!("Cannot read {}: {}", file_path, e);
+                std::process::exit(1);
+            });
+            let mut kg = load_kg(&kg_path);
+            kg.reindex_file(file_path, &code);
+            autoclaw::save(&kg, kg_path.as_path()).unwrap_or_else(|e| {
+                eprintln!("Failed to save: {}", e);
+                std::process::exit(1);
+            });
+            eprintln!("Reindexed: {}", file_path);
+        }
+        "reconcile" => {
+            let mut input_json = String::new();
+            std::io::Read::read_to_string(&mut std::io::stdin(), &mut input_json)
+                .expect("Failed to read stdin");
+
+            let input: autoclaw::reconcile::ReconcileInput =
+                serde_json::from_str(&input_json).unwrap_or_else(|e| {
+                    eprintln!("Invalid JSON input: {}", e);
+                    std::process::exit(1);
+                });
+
+            let mut kg = load_kg(&kg_path);
+            let mut report = autoclaw::reconcile::reconcile(&mut kg, &input);
+
+            // Run GC after reconciliation
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            report.gc_removed = autoclaw::reconcile::garbage_collect(&mut kg, 0.05, now);
+
+            autoclaw::save(&kg, kg_path.as_path()).unwrap_or_else(|e| {
+                eprintln!("Failed to save: {}", e);
+                std::process::exit(1);
+            });
+
+            println!("{}", serde_json::to_string(&report).unwrap());
+        }
+        "tick" => {
+            if args.len() < 3 {
+                eprintln!("Usage: autoclaw tick <transcript_path> [--snapshot-every N] [--threshold N] [--window N]");
+                std::process::exit(1);
+            }
+            let transcript = &args[2];
+            let snapshot_every: u64 = args
+                .iter()
+                .position(|a| a == "--snapshot-every")
+                .and_then(|i| args.get(i + 1))
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(20);
+            let threshold: u64 = args
+                .iter()
+                .position(|a| a == "--threshold")
+                .and_then(|i| args.get(i + 1))
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(85);
+            let window: u64 = args
+                .iter()
+                .position(|a| a == "--window")
+                .and_then(|i| args.get(i + 1))
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(200000);
+
+            let transcript_path = std::path::Path::new(transcript);
+            let counter_file = transcript_path.with_extension("tick");
+            let result = autoclaw::tick::tick(
+                transcript_path,
+                &counter_file,
+                snapshot_every,
+                threshold,
+                window,
+            );
+
+            match result.action {
+                autoclaw::tick::TickAction::None => {
+                    // Silent — no action needed
+                    std::process::exit(0);
+                }
+                autoclaw::tick::TickAction::Snapshot => {
+                    // Run heuristic snapshot on recent transcript entries
+                    // For now, just signal success — snapshot integration comes later
+                    eprintln!("tick: snapshot triggered (counter reset)");
+                    std::process::exit(0);
+                }
+                autoclaw::tick::TickAction::Extract => {
+                    // Signal extraction needed — exit 1 triggers extract-and-compact.sh
+                    eprintln!("tick: extraction triggered ({}% context used)", result.used_pct);
+                    std::process::exit(1);
+                }
+            }
+        }
+        "monitor" => {
+            if args.len() < 3 {
+                eprintln!("Usage: autoclaw monitor <transcript_path> [--threshold N] [--window N]");
+                std::process::exit(1);
+            }
+            let transcript = &args[2];
+            let threshold: u64 = args
+                .iter()
+                .position(|a| a == "--threshold")
+                .and_then(|i| args.get(i + 1))
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(85);
+            let window: u64 = args
+                .iter()
+                .position(|a| a == "--window")
+                .and_then(|i| args.get(i + 1))
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(200000);
+
+            match autoclaw::monitor::check_context_usage(
+                std::path::Path::new(transcript),
+                threshold,
+                window,
+            ) {
+                Ok(result) => {
+                    println!(
+                        r#"{{"used_pct":{},"used_tokens":{},"window_size":{},"should_extract":{}}}"#,
+                        result.used_pct, result.used_tokens, result.window_size, result.should_extract
+                    );
+                    if result.should_extract {
+                        std::process::exit(1);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Monitor error: {}", e);
+                    std::process::exit(0); // Don't block on error
+                }
+            }
+        }
+        "file-context" => {
+            if args.len() < 3 {
+                eprintln!("Usage: autoclaw file-context <file_path> [--budget N]");
+                std::process::exit(1);
+            }
+            let file_path = &args[2];
+            let budget: usize = args
+                .iter()
+                .position(|a| a == "--budget")
+                .and_then(|i| args.get(i + 1))
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(300);
+            let kg = load_kg(&kg_path);
+            let output = autoclaw::file_context::file_context(&kg, file_path, budget);
+            if !output.is_empty() {
+                print!("{}", output);
+            }
+        }
+        "relevant" => {
+            if args.len() < 3 {
+                eprintln!("Usage: autoclaw relevant <query> [--budget N]");
+                std::process::exit(1);
+            }
+            let query = &args[2];
+            let budget: usize = args
+                .iter()
+                .position(|a| a == "--budget")
+                .and_then(|i| args.get(i + 1))
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(500);
+            let kg = load_kg(&kg_path);
+            let output = autoclaw::relevant::find_relevant(&kg, query, budget);
+            if output.is_empty() {
+                // No relevant context — silent (hook should not inject noise)
+            } else {
+                print!("{}", output);
+            }
+        }
+        "context" => {
+            let budget: usize = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(2000);
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            let kg = load_kg(&kg_path);
+            let output = autoclaw::context::generate_context(&kg, budget, now);
+            print!("{}", output);
+        }
         "--help" | "-h" | "help" => print_usage(),
         cmd => {
             eprintln!("Unknown command: {}", cmd);
@@ -47,18 +300,35 @@ fn print_usage() {
 
 Usage: autoclaw <command> [args]
 
-Commands:
-  stats                  Show graph statistics
-  topics                 Show main knowledge topics
-  explore <name>         Explore an entity and its connections
-  connect <a> <b>        Find path between two entities
-  recent                 Show recently added entities
-  export                 Export graph as JSON
+Navigation:
+  stats                          Show graph statistics
+  topics                         Show main knowledge topics
+  explore <name>                 Explore an entity and its connections
+  connect <a> <b>                Find path between two entities
+  recent                         Show recently added entities
+  export                         Export graph as JSON
+
+Context (used by Claude Code hooks):
+  context [budget]               Generate ranked context for re-injection
+  relevant <query> [--budget N]  Find facts relevant to a text query
+  file-context <path> [--budget] Get KG knowledge about a specific file
+
+Impact analysis:
+  impact <entity> [--depth N]    Show all references + breaking changes
+  impact-from-diff <json>        Impact analysis from an Edit/Write diff
+
+Ingestion:
+  bootstrap [--config path]      Full project indexing (code + conversations)
+  reindex <file_path>            Re-parse a single file with tree-sitter
+  reconcile                      Merge extraction JSON from stdin into KG
+  snapshot <transcript> [opts]   Heuristic extraction from transcript
+
+Monitoring:
+  monitor <transcript> [opts]    Check context usage against threshold
+  tick <transcript> [opts]       Combined monitor + periodic snapshot
 
 Environment:
-  AUTOCLAW_KG            Path to .kg file (default: ./knowledge.kg)
-
-The primary interface is the Python SDK. The CLI is for inspection and debugging."#
+  AUTOCLAW_KG                    Path to .kg file (default: ./knowledge.kg)"#
     );
 }
 

@@ -1,0 +1,73 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "autoclaw context --budget 2000 --project \"$CWD\" 2>/dev/null || echo 'No KG found. Run /graphocode:start to bootstrap.'"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "USER_MSG=$(cat - | jq -r '.user_message // empty' 2>/dev/null) && [ -n \"$USER_MSG\" ] && autoclaw relevant \"$USER_MSG\" --budget 500 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "TOOL_INPUT=$(cat -) && autoclaw impact-from-diff \"$TOOL_INPUT\" 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "FILE_PATH=$(cat - | jq -r '.tool_input.file_path // empty' 2>/dev/null) && [ -n \"$FILE_PATH\" ] && autoclaw file-context \"$FILE_PATH\" --budget 300 2>/dev/null || true"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "FILE_PATH=$(cat - | jq -r '.tool_input.file_path // empty' 2>/dev/null) && [ -n \"$FILE_PATH\" ] && autoclaw reindex \"$FILE_PATH\" 2>/dev/null || true"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "autoclaw tick \"$TRANSCRIPT_PATH\" --snapshot-every 20 --threshold 85 2>/dev/null || bash autoclaw-plugin/scripts/extract-and-compact.sh \"$TRANSCRIPT_PATH\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "autoclaw snapshot \"$TRANSCRIPT_PATH\" --all-since-last 2>/dev/null || true"
+          }
+        ]
+      }
+    ]
+  }
+}

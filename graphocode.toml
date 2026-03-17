@@ -1,0 +1,17 @@
+[sources]
+code = ["src/**/*.rs", "src/**/*.py"]
+conversations = true
+documents = []
+
+[bootstrap]
+on_first_session = true
+snapshot_every = 20
+
+[extraction]
+threshold = 85
+budget = 2000
+model = "haiku"
+
+[impact]
+enabled = true
+depth = 2

@@ -1,0 +1,5 @@
+{
+  "name": "graphocode",
+  "version": "0.1.0",
+  "description": "Knowledge graph memory for Claude Code — replaces lossy compression with structured, persistent project memory with impact analysis"
+}
