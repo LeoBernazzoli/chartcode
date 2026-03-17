@@ -210,6 +210,52 @@ impl KnowledgeGraph {
         self.nodes.get(&id)
     }
 
+    pub fn get_node_mut(&mut self, id: NodeId) -> Option<&mut Node> {
+        self.nodes.get_mut(&id)
+    }
+
+    /// Iterate over all nodes.
+    pub fn all_nodes(&self) -> impl Iterator<Item = &Node> {
+        self.nodes.values()
+    }
+
+    /// Get next available node ID.
+    pub fn next_node_id(&self) -> u64 {
+        self.next_node_id
+    }
+
+    /// Remove a node and its associated edges.
+    pub fn remove_node(&mut self, id: NodeId) {
+        if let Some(node) = self.nodes.remove(&id) {
+            // Remove from name index
+            let norm = node.normalized_name();
+            if let Some(ids) = self.index_by_name.get_mut(&norm) {
+                ids.retain(|&nid| nid != id);
+            }
+            // Remove from type index
+            if let Some(ids) = self.index_by_type.get_mut(&node.node_type) {
+                ids.retain(|&nid| nid != id);
+            }
+            // Remove edges referencing this node
+            let old_len = self.edges.len();
+            self.edges.retain(|e| e.from != id && e.to != id);
+            if self.edges.len() != old_len {
+                self.rebuild_adjacency();
+            }
+            // Remove from adjacency
+            self.adjacency.remove(&id);
+        }
+    }
+
+    /// Rebuild adjacency index from edges.
+    fn rebuild_adjacency(&mut self) {
+        self.adjacency.clear();
+        for (idx, edge) in self.edges.iter().enumerate() {
+            self.adjacency.entry(edge.from).or_default().push(idx);
+            self.adjacency.entry(edge.to).or_default().push(idx);
+        }
+    }
+
     /// Get all nodes of a given type.
     pub fn nodes_by_type(&self, type_name: &str) -> Vec<&Node> {
         self.index_by_type

@@ -32,6 +32,16 @@ fn main() {
         }
         "recent" => cmd_recent(&kg_path),
         "export" => cmd_export(&kg_path),
+        "context" => {
+            let budget: usize = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(2000);
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            let kg = load_kg(&kg_path);
+            let output = autoclaw::context::generate_context(&kg, budget, now);
+            print!("{}", output);
+        }
         "--help" | "-h" | "help" => print_usage(),
         cmd => {
             eprintln!("Unknown command: {}", cmd);
@@ -54,6 +64,7 @@ Commands:
   connect <a> <b>        Find path between two entities
   recent                 Show recently added entities
   export                 Export graph as JSON
+  context [budget]       Generate context for re-injection (default budget: 2000 tokens)
 
 Environment:
   AUTOCLAW_KG            Path to .kg file (default: ./knowledge.kg)
