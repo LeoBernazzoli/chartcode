@@ -7,6 +7,7 @@ pub mod relevant;
 pub mod snapshot;
 pub mod tick;
 pub mod tier;
+pub mod treesitter;
 pub mod claude_parser;
 pub mod graph;
 pub mod model;
