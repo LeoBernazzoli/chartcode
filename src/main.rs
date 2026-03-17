@@ -32,6 +32,34 @@ fn main() {
         }
         "recent" => cmd_recent(&kg_path),
         "export" => cmd_export(&kg_path),
+        "reconcile" => {
+            let mut input_json = String::new();
+            std::io::Read::read_to_string(&mut std::io::stdin(), &mut input_json)
+                .expect("Failed to read stdin");
+
+            let input: autoclaw::reconcile::ReconcileInput =
+                serde_json::from_str(&input_json).unwrap_or_else(|e| {
+                    eprintln!("Invalid JSON input: {}", e);
+                    std::process::exit(1);
+                });
+
+            let mut kg = load_kg(&kg_path);
+            let mut report = autoclaw::reconcile::reconcile(&mut kg, &input);
+
+            // Run GC after reconciliation
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            report.gc_removed = autoclaw::reconcile::garbage_collect(&mut kg, 0.05, now);
+
+            autoclaw::save(&kg, kg_path.as_path()).unwrap_or_else(|e| {
+                eprintln!("Failed to save: {}", e);
+                std::process::exit(1);
+            });
+
+            println!("{}", serde_json::to_string(&report).unwrap());
+        }
         "tick" => {
             if args.len() < 3 {
                 eprintln!("Usage: autoclaw tick <transcript_path> [--snapshot-every N] [--threshold N] [--window N]");

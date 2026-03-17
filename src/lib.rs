@@ -2,6 +2,7 @@ pub mod chunker;
 pub mod context;
 pub mod file_context;
 pub mod monitor;
+pub mod reconcile;
 pub mod relevant;
 pub mod snapshot;
 pub mod tick;
