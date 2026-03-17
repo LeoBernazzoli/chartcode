@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::tier::ImportanceTier;
+
 // ── Core Types ──────────────────────────────────────────────────
 
 pub type NodeId = u64;
@@ -11,6 +13,8 @@ pub enum Source {
     Document { name: String, page: Option<u32> },
     Memory,
     Inferred,
+    CodeAnalysis { file: String },
+    Conversation,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,6 +40,12 @@ pub struct Node {
     pub source: Source,
     pub created_at: Timestamp,
     pub evidence: Vec<Evidence>,
+    #[serde(default)]
+    pub tier: ImportanceTier,
+    #[serde(default)]
+    pub superseded_by: Option<NodeId>,
+    #[serde(default)]
+    pub last_referenced: Timestamp,
 }
 
 impl Node {
@@ -47,6 +57,10 @@ impl Node {
         confidence: f32,
         source: Source,
     ) -> Self {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
         Self {
             id,
             name,
@@ -56,11 +70,11 @@ impl Node {
             aliases: Vec::new(),
             confidence,
             source,
-            created_at: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
+            created_at: now,
             evidence: Vec::new(),
+            tier: ImportanceTier::default(),
+            superseded_by: None,
+            last_referenced: now,
         }
     }
 
