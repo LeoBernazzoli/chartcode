@@ -3,6 +3,7 @@ pub mod context;
 pub mod file_context;
 pub mod monitor;
 pub mod relevant;
+pub mod snapshot;
 pub mod tier;
 pub mod claude_parser;
 pub mod graph;
