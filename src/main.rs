@@ -32,6 +32,26 @@ fn main() {
         }
         "recent" => cmd_recent(&kg_path),
         "export" => cmd_export(&kg_path),
+        "relevant" => {
+            if args.len() < 3 {
+                eprintln!("Usage: autoclaw relevant <query> [--budget N]");
+                std::process::exit(1);
+            }
+            let query = &args[2];
+            let budget: usize = args
+                .iter()
+                .position(|a| a == "--budget")
+                .and_then(|i| args.get(i + 1))
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(500);
+            let kg = load_kg(&kg_path);
+            let output = autoclaw::relevant::find_relevant(&kg, query, budget);
+            if output.is_empty() {
+                // No relevant context — silent (hook should not inject noise)
+            } else {
+                print!("{}", output);
+            }
+        }
         "context" => {
             let budget: usize = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(2000);
             let now = std::time::SystemTime::now()

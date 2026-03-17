@@ -1,5 +1,6 @@
 pub mod chunker;
 pub mod context;
+pub mod relevant;
 pub mod tier;
 pub mod claude_parser;
 pub mod graph;
