@@ -89,8 +89,8 @@ fn test_full_pipeline() {
         .unwrap()
         .as_secs();
     let context = generate_context(&kg, 2000, now);
-    assert!(context.contains("Knowledge Graph Context"));
-    assert!(context.contains("Critical")); // decay decision is critical
+    assert!(context.contains("[KG Context]"));
+    assert!(context.contains("[Critical]")); // decay decision is critical
     assert!(context.contains("exponential decay"));
 
     // 5. Test relevant search
