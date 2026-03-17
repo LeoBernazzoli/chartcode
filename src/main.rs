@@ -32,6 +32,59 @@ fn main() {
         }
         "recent" => cmd_recent(&kg_path),
         "export" => cmd_export(&kg_path),
+        "tick" => {
+            if args.len() < 3 {
+                eprintln!("Usage: autoclaw tick <transcript_path> [--snapshot-every N] [--threshold N] [--window N]");
+                std::process::exit(1);
+            }
+            let transcript = &args[2];
+            let snapshot_every: u64 = args
+                .iter()
+                .position(|a| a == "--snapshot-every")
+                .and_then(|i| args.get(i + 1))
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(20);
+            let threshold: u64 = args
+                .iter()
+                .position(|a| a == "--threshold")
+                .and_then(|i| args.get(i + 1))
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(85);
+            let window: u64 = args
+                .iter()
+                .position(|a| a == "--window")
+                .and_then(|i| args.get(i + 1))
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(200000);
+
+            let transcript_path = std::path::Path::new(transcript);
+            let counter_file = transcript_path.with_extension("tick");
+            let result = autoclaw::tick::tick(
+                transcript_path,
+                &counter_file,
+                snapshot_every,
+                threshold,
+                window,
+            );
+
+            match result.action {
+                autoclaw::tick::TickAction::None => {
+                    // Silent — no action needed
+                    std::process::exit(0);
+                }
+                autoclaw::tick::TickAction::Snapshot => {
+                    // Run heuristic snapshot on recent transcript entries
+                    // For now, just signal success — snapshot integration comes later
+                    eprintln!("tick: snapshot triggered (counter reset)");
+                    std::process::exit(0);
+                }
+                autoclaw::tick::TickAction::Extract => {
+                    // Signal extraction needed — exit 1 triggers extract-and-compact.sh
+                    eprintln!("tick: extraction triggered ({}% context used)", result.used_pct);
+                    std::process::exit(1);
+                }
+            }
+        }
         "monitor" => {
             if args.len() < 3 {
                 eprintln!("Usage: autoclaw monitor <transcript_path> [--threshold N] [--window N]");
