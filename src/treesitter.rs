@@ -10,6 +10,23 @@ pub struct CodeEntity {
     pub line_end: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum RefType {
+    Calls,
+    ReadsField,
+    WritesField,
+    UsesType,
+    MethodCall,
+}
+
+#[derive(Debug, Clone)]
+pub struct CodeReference {
+    pub source_file: String,
+    pub source_line: usize,
+    pub target_name: String,
+    pub ref_type: RefType,
+}
+
 /// Parse Rust source code and extract code entities.
 /// Deterministic, no LLM, milliseconds.
 pub fn parse_rust_code(source: &str, file_path: &str) -> Vec<CodeEntity> {
@@ -28,6 +45,146 @@ pub fn parse_rust_code(source: &str, file_path: &str) -> Vec<CodeEntity> {
     let mut entities = Vec::new();
     extract_from_node(&root, bytes, file_path, &mut entities, None);
     entities
+}
+
+/// Parse Rust source code and extract both entities AND references.
+/// V2: returns (definitions, references) for complete code graph.
+pub fn parse_rust_code_v2(source: &str, file_path: &str) -> (Vec<CodeEntity>, Vec<CodeReference>) {
+    let mut parser = Parser::new();
+    parser
+        .set_language(&tree_sitter_rust::LANGUAGE.into())
+        .expect("Error loading Rust grammar");
+
+    let tree = match parser.parse(source, None) {
+        Some(t) => t,
+        None => return (Vec::new(), Vec::new()),
+    };
+
+    let root = tree.root_node();
+    let bytes = source.as_bytes();
+    let mut entities = Vec::new();
+    extract_from_node(&root, bytes, file_path, &mut entities, None);
+    let mut references = Vec::new();
+    extract_references(&root, bytes, file_path, &mut references);
+    (entities, references)
+}
+
+const RUST_PRIMITIVES: &[&str] = &[
+    "Self", "str", "bool", "u8", "u16", "u32", "u64", "u128",
+    "i8", "i16", "i32", "i64", "i128", "f32", "f64", "usize", "isize",
+    "String", "Vec", "Option", "Result", "HashMap", "HashSet",
+    "Box", "Arc", "Rc", "Path", "PathBuf", "Cow", "BTreeMap", "BTreeSet",
+];
+
+fn extract_references(
+    node: &tree_sitter::Node,
+    source: &[u8],
+    file: &str,
+    refs: &mut Vec<CodeReference>,
+) {
+    match node.kind() {
+        "call_expression" => {
+            if let Some(func_node) = node.child_by_field_name("function") {
+                match func_node.kind() {
+                    // Method call: obj.method(args)
+                    "field_expression" => {
+                        if let Some(method_node) = func_node.child_by_field_name("field") {
+                            refs.push(CodeReference {
+                                source_file: file.into(),
+                                source_line: node.start_position().row + 1,
+                                target_name: node_text(&method_node, source).to_string(),
+                                ref_type: RefType::MethodCall,
+                            });
+                        }
+                    }
+                    // Simple function call: func(args)
+                    "identifier" => {
+                        let name = node_text(&func_node, source).to_string();
+                        // Skip common macros and builtins
+                        if !["println", "eprintln", "format", "vec", "panic",
+                             "assert", "assert_eq", "assert_ne", "unreachable",
+                             "todo", "unimplemented", "dbg", "write", "writeln",
+                             "Some", "None", "Ok", "Err"].contains(&name.as_str()) {
+                            refs.push(CodeReference {
+                                source_file: file.into(),
+                                source_line: node.start_position().row + 1,
+                                target_name: name,
+                                ref_type: RefType::Calls,
+                            });
+                        }
+                    }
+                    // Qualified call: Module::func(args)
+                    "scoped_identifier" => {
+                        // Extract the last segment as the function name
+                        let text = node_text(&func_node, source);
+                        if let Some(name) = text.rsplit("::").next() {
+                            refs.push(CodeReference {
+                                source_file: file.into(),
+                                source_line: node.start_position().row + 1,
+                                target_name: name.to_string(),
+                                ref_type: RefType::Calls,
+                            });
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        "field_expression" => {
+            // Skip if parent is a call_expression (handled above as MethodCall)
+            let is_method_call = node
+                .parent()
+                .map(|p| p.kind() == "call_expression" &&
+                    p.child_by_field_name("function")
+                        .map(|f| f.id() == node.id())
+                        .unwrap_or(false))
+                .unwrap_or(false);
+
+            if !is_method_call {
+                if let Some(field_node) = node.child_by_field_name("field") {
+                    let field_name = node_text(&field_node, source).to_string();
+                    // Determine if read or write
+                    let is_write = node
+                        .parent()
+                        .map(|p| {
+                            p.kind() == "assignment_expression"
+                                && p.child_by_field_name("left")
+                                    .map(|l| l.id() == node.id())
+                                    .unwrap_or(false)
+                        })
+                        .unwrap_or(false);
+                    refs.push(CodeReference {
+                        source_file: file.into(),
+                        source_line: node.start_position().row + 1,
+                        target_name: field_name,
+                        ref_type: if is_write {
+                            RefType::WritesField
+                        } else {
+                            RefType::ReadsField
+                        },
+                    });
+                }
+            }
+        }
+        "type_identifier" => {
+            let name = node_text(node, source).to_string();
+            if !RUST_PRIMITIVES.contains(&name.as_str()) {
+                refs.push(CodeReference {
+                    source_file: file.into(),
+                    source_line: node.start_position().row + 1,
+                    target_name: name,
+                    ref_type: RefType::UsesType,
+                });
+            }
+        }
+        _ => {}
+    }
+
+    // Recurse into children
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        extract_references(&child, source, file, refs);
+    }
 }
 
 fn node_text<'a>(node: &tree_sitter::Node, source: &'a [u8]) -> &'a str {
@@ -391,5 +548,128 @@ pub enum GraphError {
         assert!(entities
             .iter()
             .any(|e| e.entity_type == "Enum" && e.name == "GraphError"));
+    }
+
+    // ── v2 reference extraction tests ─────────────────────────
+
+    #[test]
+    fn test_extract_call_references() {
+        let code = r#"
+fn caller() {
+    let result = chunk_text("hello", 4000, 500);
+    let x = other_func();
+}
+"#;
+        let (_, refs) = parse_rust_code_v2(code, "src/test.rs");
+        let calls: Vec<_> = refs.iter().filter(|r| r.ref_type == RefType::Calls).collect();
+        assert!(calls.iter().any(|r| r.target_name == "chunk_text"), "Should find chunk_text call");
+        assert!(calls.iter().any(|r| r.target_name == "other_func"), "Should find other_func call");
+    }
+
+    #[test]
+    fn test_extract_field_read_references() {
+        let code = r#"
+fn reader(node: Node) {
+    let c = node.confidence;
+    let t = node.tier;
+}
+"#;
+        let (_, refs) = parse_rust_code_v2(code, "src/test.rs");
+        let reads: Vec<_> = refs.iter().filter(|r| r.ref_type == RefType::ReadsField).collect();
+        assert!(reads.iter().any(|r| r.target_name == "confidence"), "Should find confidence read");
+        assert!(reads.iter().any(|r| r.target_name == "tier"), "Should find tier read");
+    }
+
+    #[test]
+    fn test_extract_field_write_references() {
+        let code = r#"
+fn writer(node: &mut Node) {
+    node.confidence = 0.9;
+}
+"#;
+        let (_, refs) = parse_rust_code_v2(code, "src/test.rs");
+        let writes: Vec<_> = refs.iter().filter(|r| r.ref_type == RefType::WritesField).collect();
+        assert!(writes.iter().any(|r| r.target_name == "confidence"), "Should find confidence write");
+    }
+
+    #[test]
+    fn test_extract_type_references() {
+        let code = r#"
+fn processor(nodes: Vec<Node>, edges: &[Edge]) -> Option<NodeId> {
+    None
+}
+"#;
+        let (_, refs) = parse_rust_code_v2(code, "src/test.rs");
+        let types: Vec<_> = refs.iter().filter(|r| r.ref_type == RefType::UsesType).collect();
+        assert!(types.iter().any(|r| r.target_name == "Node"), "Should find Node type usage");
+        assert!(types.iter().any(|r| r.target_name == "Edge"), "Should find Edge type usage");
+        assert!(types.iter().any(|r| r.target_name == "NodeId"), "Should find NodeId type usage");
+    }
+
+    #[test]
+    fn test_extract_method_call_references() {
+        let code = r#"
+fn user(kg: &mut KnowledgeGraph) {
+    kg.add_node(node);
+    let n = kg.lookup("test");
+}
+"#;
+        let (_, refs) = parse_rust_code_v2(code, "src/test.rs");
+        let methods: Vec<_> = refs.iter().filter(|r| r.ref_type == RefType::MethodCall).collect();
+        assert!(methods.iter().any(|r| r.target_name == "add_node"), "Should find add_node method call");
+        assert!(methods.iter().any(|r| r.target_name == "lookup"), "Should find lookup method call");
+    }
+
+    #[test]
+    fn test_v2_returns_both_entities_and_refs() {
+        let code = r#"
+pub fn hello() -> bool { true }
+fn caller() { hello(); }
+"#;
+        let (entities, refs) = parse_rust_code_v2(code, "src/test.rs");
+        assert!(!entities.is_empty(), "Should return entities");
+        assert!(!refs.is_empty(), "Should return references");
+        assert!(entities.iter().any(|e| e.name == "hello"));
+        assert!(refs.iter().any(|r| r.target_name == "hello" && r.ref_type == RefType::Calls));
+    }
+
+    #[test]
+    fn test_filters_rust_primitives() {
+        let code = r#"
+fn test(s: String, v: Vec<u64>, h: HashMap<String, bool>) {}
+"#;
+        let (_, refs) = parse_rust_code_v2(code, "src/test.rs");
+        let types: Vec<_> = refs.iter().filter(|r| r.ref_type == RefType::UsesType).collect();
+        // String, Vec, HashMap, u64, bool should all be filtered
+        assert!(types.is_empty(), "Primitives should be filtered, got: {:?}", types);
+    }
+
+    #[test]
+    fn test_scoped_call() {
+        let code = r#"
+fn test() {
+    let x = Module::function();
+}
+"#;
+        let (_, refs) = parse_rust_code_v2(code, "src/test.rs");
+        assert!(refs.iter().any(|r| r.target_name == "function" && r.ref_type == RefType::Calls));
+    }
+
+    #[test]
+    fn test_reference_line_numbers() {
+        let code = "fn a() {}\nfn b() { a(); }";
+        let (_, refs) = parse_rust_code_v2(code, "test.rs");
+        let call = refs.iter().find(|r| r.target_name == "a").unwrap();
+        assert_eq!(call.source_line, 2);
+    }
+
+    #[test]
+    fn test_real_codebase_references() {
+        let code = std::fs::read_to_string("src/graph.rs").unwrap();
+        let (entities, refs) = parse_rust_code_v2(&code, "src/graph.rs");
+        assert!(!entities.is_empty());
+        assert!(!refs.is_empty(), "graph.rs should have references");
+        // graph.rs uses Node, Edge, etc.
+        assert!(refs.iter().any(|r| r.ref_type == RefType::UsesType), "Should find type usages");
     }
 }
