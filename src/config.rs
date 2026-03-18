@@ -50,7 +50,7 @@ pub struct ImpactConfig {
 }
 
 fn default_code_patterns() -> Vec<String> {
-    vec!["src/**/*.rs".into()]
+    vec!["**/*.rs".into()]
 }
 fn default_true() -> bool {
     true
@@ -171,7 +171,7 @@ depth = 3
     #[test]
     fn test_default_config() {
         let config = GraphocodeConfig::default();
-        assert_eq!(config.sources.code, vec!["src/**/*.rs"]);
+        assert_eq!(config.sources.code, vec!["**/*.rs"]);
         assert!(config.sources.conversations);
         assert!(config.sources.documents.is_empty());
         assert_eq!(config.extraction.threshold, 85);
@@ -203,6 +203,6 @@ code = ["**/*.py"]
     #[test]
     fn test_empty_config_file() {
         let config: GraphocodeConfig = toml::from_str("").unwrap();
-        assert_eq!(config.sources.code, vec!["src/**/*.rs"]); // defaults
+        assert_eq!(config.sources.code, vec!["**/*.rs"]); // defaults
     }
 }
