@@ -32,6 +32,18 @@ fn main() {
         }
         "recent" => cmd_recent(&kg_path),
         "export" => cmd_export(&kg_path),
+        "sync-rules" => {
+            let kg = load_kg(&kg_path);
+            let project_dir = args
+                .iter()
+                .position(|a| a == "--project-dir")
+                .and_then(|i| args.get(i + 1))
+                .map(|s| std::path::PathBuf::from(s))
+                .unwrap_or_else(|| std::env::current_dir().unwrap());
+            let rules_dir = project_dir.join(".claude").join("rules");
+            autoclaw::sync_rules::sync_rules(&kg, &rules_dir);
+            eprintln!("Rules synced to {}", rules_dir.display());
+        }
         "bootstrap" => {
             let config_path = args
                 .iter()
