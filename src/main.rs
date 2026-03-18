@@ -94,21 +94,20 @@ fn main() {
             print!("{}", report);
         }
         "impact-from-diff" => {
-            if args.len() < 3 {
-                eprintln!("Usage: autoclaw impact-from-diff <tool_input_json>");
-                std::process::exit(1);
-            }
-            let tool_input = &args[2];
-            let depth: usize = args
-                .iter()
-                .position(|a| a == "--depth")
-                .and_then(|i| args.get(i + 1))
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(1);
+            // V2: reads tool input from stdin (for hook compatibility) or args
+            let tool_input = if args.len() >= 3 {
+                args[2].clone()
+            } else {
+                let mut input = String::new();
+                std::io::Read::read_to_string(&mut std::io::stdin(), &mut input)
+                    .unwrap_or_default();
+                input
+            };
             let kg = load_kg(&kg_path);
-            let report = autoclaw::impact::impact_from_diff(&kg, tool_input, depth);
-            if !report.is_empty() {
-                print!("{}", report);
+            // V2: output additionalContext JSON
+            let output = autoclaw::impact::impact_from_diff_v2(&kg, &tool_input);
+            if !output.is_empty() {
+                print!("{}", output);
             }
         }
         "reindex" => {

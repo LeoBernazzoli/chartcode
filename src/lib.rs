@@ -6,6 +6,7 @@ pub mod file_context;
 pub mod impact;
 pub mod monitor;
 pub mod pagerank;
+pub mod patterns;
 pub mod reconcile;
 pub mod relevant;
 pub mod snapshot;
