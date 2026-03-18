@@ -291,6 +291,130 @@ impl KnowledgeGraph {
         }
     }
 
+    /// V2: Re-index a file extracting both definitions AND references.
+    pub fn reindex_file_v2(&mut self, file_path: &str, source_code: &str) {
+        // Remove old code entities for this file
+        let to_remove: Vec<NodeId> = self
+            .all_nodes()
+            .filter(|n| {
+                matches!(&n.source, Source::CodeAnalysis { file } if file == file_path)
+            })
+            .map(|n| n.id)
+            .collect();
+        for id in to_remove {
+            self.remove_node(id);
+        }
+
+        // Remove old reference edges FROM this file
+        self.edges.retain(|e| {
+            !matches!(&e.source, Source::CodeAnalysis { file } if file == file_path)
+        });
+        self.rebuild_adjacency();
+
+        // Parse with v2 (entities + references)
+        let (entities, references) =
+            crate::treesitter::parse_rust_code_v2(source_code, file_path);
+
+        // Add entities as nodes
+        for entity in entities {
+            let mut node = Node::new(
+                0,
+                entity.name,
+                entity.entity_type,
+                entity.definition,
+                1.0,
+                Source::CodeAnalysis {
+                    file: file_path.to_string(),
+                },
+            );
+            node.tier = crate::tier::ImportanceTier::Minor;
+            let _ = self.add_node(node);
+        }
+
+        // Create a file-level node to serve as edge source
+        let file_node_name = file_path.to_string();
+        let file_node_id = if let Some(n) = self.lookup(&file_node_name) {
+            n.id
+        } else {
+            let mut fnode = Node::new(
+                0,
+                file_node_name,
+                "File".to_string(),
+                format!("Source file {}", file_path),
+                1.0,
+                Source::CodeAnalysis {
+                    file: file_path.to_string(),
+                },
+            );
+            fnode.tier = crate::tier::ImportanceTier::Minor;
+            self.add_node(fnode).unwrap_or(0)
+        };
+
+        // Add references as edges: file → target entity
+        for reference in references {
+            if let Some(target_node) = self.lookup(&reference.target_name) {
+                let target_id = target_node.id;
+                if file_node_id != 0 && file_node_id != target_id {
+                    let ref_type_str = match reference.ref_type {
+                        crate::treesitter::RefType::Calls => "calls",
+                        crate::treesitter::RefType::ReadsField => "reads",
+                        crate::treesitter::RefType::WritesField => "writes",
+                        crate::treesitter::RefType::UsesType => "uses_type",
+                        crate::treesitter::RefType::MethodCall => "calls",
+                    };
+                    let edge = Edge::new(
+                        0,
+                        file_node_id,
+                        target_id,
+                        ref_type_str.to_string(),
+                        1.0,
+                        Source::CodeAnalysis {
+                            file: file_path.to_string(),
+                        },
+                    );
+                    let _ = self.add_edge(edge);
+                }
+            }
+        }
+    }
+
+    /// Get all references pointing to an entity by name.
+    pub fn references_to(&self, entity_name: &str) -> Vec<crate::treesitter::CodeReference> {
+        let target = match self.lookup(entity_name) {
+            Some(n) => n.id,
+            None => return Vec::new(),
+        };
+
+        let mut refs = Vec::new();
+        for edge in &self.edges {
+            if edge.to == target {
+                if let Source::CodeAnalysis { ref file } = edge.source {
+                    refs.push(crate::treesitter::CodeReference {
+                        source_file: file.clone(),
+                        source_line: 0, // edge doesn't store line, but file is enough
+                        target_name: entity_name.to_string(),
+                        ref_type: match edge.relation_type.as_str() {
+                            "reads" => crate::treesitter::RefType::ReadsField,
+                            "writes" => crate::treesitter::RefType::WritesField,
+                            "uses_type" => crate::treesitter::RefType::UsesType,
+                            _ => crate::treesitter::RefType::Calls,
+                        },
+                    });
+                }
+            }
+        }
+        refs
+    }
+
+    /// Count inbound references to an entity by name.
+    pub fn inbound_reference_count(&self, entity_name: &str) -> usize {
+        let target = match self.lookup(entity_name) {
+            Some(n) => n.id,
+            None => return 0,
+        };
+        self.edges.iter().filter(|e| e.to == target).count()
+    }
+
     /// Get all nodes of a given type.
     pub fn nodes_by_type(&self, type_name: &str) -> Vec<&Node> {
         self.index_by_type
@@ -1210,5 +1334,65 @@ mod tests {
         // alpha should be gone from nodes (even if stale index entry remains)
         let alpha_exists = kg.all_nodes().any(|n| n.name == "alpha");
         assert!(!alpha_exists);
+    }
+
+    // ── v2 reference edge tests ─────────────────────────
+
+    #[test]
+    fn test_reindex_v2_creates_reference_edges() {
+        let mut kg = KnowledgeGraph::new();
+        kg.reindex_file_v2("src/model.rs", "pub struct Node { pub confidence: f32 }");
+        kg.reindex_file_v2(
+            "src/graph.rs",
+            r#"
+fn relevance(node: &Node) {
+    let c = node.confidence;
+}
+"#,
+        );
+        // Should have reference edges
+        assert!(kg.stats().edge_count > 0, "Should have reference edges");
+    }
+
+    #[test]
+    fn test_inbound_reference_count() {
+        let mut kg = KnowledgeGraph::new();
+        kg.reindex_file_v2("src/model.rs", "pub struct Node { pub id: u64 }");
+        kg.reindex_file_v2("src/a.rs", "fn a(n: Node) {}");
+        kg.reindex_file_v2("src/b.rs", "fn b(n: Node) {}");
+        kg.reindex_file_v2("src/c.rs", "fn c(n: Node) {}");
+
+        let count = kg.inbound_reference_count("Node");
+        assert!(count >= 3, "Expected >=3 refs to Node, got {}", count);
+    }
+
+    #[test]
+    fn test_references_to() {
+        let mut kg = KnowledgeGraph::new();
+        kg.reindex_file_v2("src/chunker.rs", "pub fn chunk_text(text: &str) {}");
+        kg.reindex_file_v2("src/boot.rs", "fn boot() { chunk_text(\"x\"); }");
+        kg.reindex_file_v2("src/graph.rs", "fn proc() { chunk_text(\"y\"); }");
+
+        let refs = kg.references_to("chunk_text");
+        assert!(
+            refs.len() >= 2,
+            "chunk_text should have >=2 refs, got {}",
+            refs.len()
+        );
+    }
+
+    #[test]
+    fn test_reindex_v2_cleans_old_edges() {
+        let mut kg = KnowledgeGraph::new();
+        kg.reindex_file_v2("src/model.rs", "pub fn target() {}");
+        kg.reindex_file_v2("src/a.rs", "fn a() { target(); }");
+
+        let before = kg.inbound_reference_count("target");
+        assert!(before >= 1);
+
+        // Reindex a.rs without the call
+        kg.reindex_file_v2("src/a.rs", "fn a() { }");
+        let after = kg.inbound_reference_count("target");
+        assert!(after < before, "Old edge should be removed after reindex");
     }
 }

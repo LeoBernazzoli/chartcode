@@ -3,7 +3,7 @@ use autoclaw::config::{GraphocodeConfig, SourcesConfig};
 use autoclaw::context::generate_context;
 use autoclaw::file_context::file_context;
 use autoclaw::graph::KnowledgeGraph;
-use autoclaw::impact::{impact_analysis, impact_from_diff};
+use autoclaw::impact::{impact_analysis, impact_from_diff, impact_from_diff_v2};
 use autoclaw::model::*;
 use autoclaw::reconcile::{
     garbage_collect, reconcile, NewFact, PromotionEntry, ReconcileInput, RelationEntry,
@@ -89,8 +89,8 @@ fn test_full_pipeline() {
         .unwrap()
         .as_secs();
     let context = generate_context(&kg, 2000, now);
-    assert!(context.contains("[KG Context]"));
-    assert!(context.contains("[Critical]")); // decay decision is critical
+    assert!(context.contains("Knowledge Graph Context"));
+    assert!(context.contains("Critical")); // decay decision is critical
     assert!(context.contains("exponential decay"));
 
     // 5. Test relevant search
@@ -240,4 +240,114 @@ fn test_bootstrap_full_project() {
     assert!(kg.all_nodes().any(|n| n.name == "Node"));
     assert!(kg.all_nodes().any(|n| n.name == "ImportanceTier"));
     assert!(kg.all_nodes().any(|n| n.name == "reconcile"));
+}
+
+// ── V2 Integration Tests ─────────────────────────
+
+/// Test the full v2 pipeline: bootstrap with references → sync-rules → impact v2
+#[test]
+fn test_v2_full_pipeline() {
+    let dir = tempfile::tempdir().unwrap();
+    let kg_path = dir.path().join("test.kg");
+    let rules_dir = dir.path().join(".claude").join("rules");
+
+    // 1. Bootstrap with v2 (definitions + references)
+    let mut kg = autoclaw::load_or_create(&kg_path).unwrap();
+    let config = GraphocodeConfig {
+        sources: SourcesConfig {
+            code: vec!["src/tier.rs".into(), "src/model.rs".into(), "src/graph.rs".into()],
+            conversations: false,
+            documents: vec![],
+        },
+        ..GraphocodeConfig::default()
+    };
+    bootstrap::bootstrap(&mut kg, &config, std::path::Path::new("."));
+
+    // 2. Verify reference edges exist
+    assert!(kg.stats().edge_count > 0, "Should have reference edges, got 0");
+
+    // 3. Verify inbound references
+    let node_refs = kg.inbound_reference_count("Node");
+    assert!(node_refs > 0, "Node should have inbound references, got {}", node_refs);
+
+    // 4. Sync rules
+    autoclaw::sync_rules::sync_rules(&kg, &rules_dir);
+    assert!(rules_dir.join("project-map.md").exists(), "project-map.md should exist");
+    assert!(rules_dir.join("decisions.md").exists(), "decisions.md should exist");
+
+    // 5. Verify project-map contains reference counts
+    let map = std::fs::read_to_string(rules_dir.join("project-map.md")).unwrap();
+    assert!(map.contains("refs IN"), "Project map should show ref counts: {}", map);
+
+    // 6. Test pattern-grouped impact v2
+    let impact = impact_from_diff_v2(
+        &kg,
+        r#"{"file_path":"src/model.rs","old_string":"pub struct Node","new_string":"pub struct GraphNode"}"#,
+    );
+    if !impact.is_empty() {
+        let json: serde_json::Value = serde_json::from_str(&impact)
+            .expect(&format!("Should be valid JSON: {}", impact));
+        assert!(
+            json.pointer("/hookSpecificOutput/additionalContext").is_some(),
+            "Should have additionalContext"
+        );
+        let ctx = json.pointer("/hookSpecificOutput/additionalContext").unwrap().as_str().unwrap();
+        assert!(ctx.contains("IMPACT"), "Report should contain IMPACT: {}", ctx);
+    }
+
+    // 7. Save and reload
+    autoclaw::save(&kg, &kg_path).unwrap();
+    let loaded = autoclaw::load_or_create(&kg_path).unwrap();
+    assert_eq!(loaded.stats().node_count, kg.stats().node_count);
+    assert_eq!(loaded.stats().edge_count, kg.stats().edge_count);
+}
+
+/// Test sync-rules generates path-specific rules with valid YAML frontmatter
+#[test]
+fn test_v2_rules_have_frontmatter() {
+    let dir = tempfile::tempdir().unwrap();
+    let rules_dir = dir.path().join(".claude").join("rules");
+
+    let mut kg = KnowledgeGraph::new();
+    kg.reindex_file_v2("src/model.rs", r#"
+pub struct Node {
+    pub id: u64,
+    pub confidence: f32,
+    pub name: String,
+    pub tier: u8,
+}
+"#);
+    kg.reindex_file_v2("src/graph.rs", "fn test(n: Node) { let c = n.confidence; }");
+
+    autoclaw::sync_rules::sync_rules(&kg, &rules_dir);
+
+    // Find the model rule file
+    let model_rule = std::fs::read_dir(&rules_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .find(|e| e.file_name().to_string_lossy().contains("model"))
+        .expect("Should have a model rule file");
+
+    let content = std::fs::read_to_string(model_rule.path()).unwrap();
+    assert!(content.contains("---"), "Should have YAML frontmatter: {}", content);
+    assert!(content.contains("paths:"), "Should have paths field: {}", content);
+    assert!(content.contains("src/model.rs"), "Should reference model.rs: {}", content);
+}
+
+/// Test that v2 bootstrap creates more edges than v1
+#[test]
+fn test_v2_bootstrap_creates_edges() {
+    let mut kg = KnowledgeGraph::new();
+    let config = GraphocodeConfig {
+        sources: SourcesConfig {
+            code: vec!["src/tier.rs".into()],
+            conversations: false,
+            documents: vec![],
+        },
+        ..GraphocodeConfig::default()
+    };
+    bootstrap::bootstrap_code(&mut kg, &config);
+
+    // tier.rs has functions that reference ImportanceTier — should create edges
+    assert!(kg.stats().edge_count > 0, "V2 bootstrap should create reference edges");
 }

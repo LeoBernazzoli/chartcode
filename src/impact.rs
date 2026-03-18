@@ -149,6 +149,67 @@ pub fn impact_from_diff(kg: &KnowledgeGraph, tool_input: &str, depth: usize) -> 
     output
 }
 
+/// V2: Parse a tool input JSON and output additionalContext JSON for PreToolUse hook.
+/// Uses pattern grouping for compact reports. Outputs nothing for internal logic changes.
+pub fn impact_from_diff_v2(kg: &KnowledgeGraph, tool_input: &str) -> String {
+    let v: serde_json::Value = match serde_json::from_str(tool_input) {
+        Ok(v) => v,
+        Err(_) => return String::new(),
+    };
+
+    let old_string = v
+        .get("old_string")
+        .and_then(|s| s.as_str())
+        .unwrap_or("");
+    if old_string.is_empty() {
+        return String::new();
+    }
+
+    // Find entities in the diff
+    let mut affected: Vec<String> = Vec::new();
+    for node in kg.all_nodes() {
+        let is_relevant = matches!(node.source, Source::CodeAnalysis { .. })
+            || node.node_type == "Decision"
+            || node.node_type == "ErrorResolution";
+
+        if is_relevant && old_string.contains(&node.name) && node.name.len() >= 3 {
+            affected.push(node.name.clone());
+        }
+    }
+
+    if affected.is_empty() {
+        return String::new();
+    }
+
+    // Get references and group by pattern
+    let mut all_refs = Vec::new();
+    let mut entity_label = String::new();
+    for entity in &affected {
+        let refs = kg.references_to(entity);
+        if !refs.is_empty() {
+            if entity_label.is_empty() {
+                entity_label = entity.clone();
+            }
+            all_refs.extend(refs);
+        }
+    }
+
+    if all_refs.is_empty() {
+        return String::new(); // Internal change, no external impact
+    }
+
+    let patterns = crate::patterns::group_by_pattern(&all_refs);
+    let report = crate::patterns::format_impact_report(&entity_label, &patterns);
+
+    // Output as additionalContext JSON
+    serde_json::json!({
+        "hookSpecificOutput": {
+            "additionalContext": report
+        }
+    })
+    .to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -347,5 +408,67 @@ mod tests {
 
         let report = impact_from_diff(&kg, tool_input, 1);
         assert!(report.is_empty());
+    }
+
+    // ── v2 impact tests ─────────────────────────
+
+    #[test]
+    fn test_impact_from_diff_v2_outputs_json() {
+        let mut kg = KnowledgeGraph::new();
+        kg.reindex_file_v2("src/model.rs", "pub struct Node { pub confidence: f32 }");
+        kg.reindex_file_v2("src/graph.rs", "fn r(n: Node) { let c = n.confidence; }");
+
+        let tool_input = r#"{"file_path":"src/model.rs","old_string":"pub confidence: f32","new_string":"pub certainty: f32"}"#;
+        let output = impact_from_diff_v2(&kg, tool_input);
+
+        if !output.is_empty() {
+            let json: serde_json::Value = serde_json::from_str(&output)
+                .expect(&format!("Should be valid JSON: {}", output));
+            assert!(
+                json.pointer("/hookSpecificOutput/additionalContext").is_some(),
+                "Should have additionalContext: {}",
+                output
+            );
+        }
+    }
+
+    #[test]
+    fn test_impact_from_diff_v2_empty_for_internal_change() {
+        let mut kg = KnowledgeGraph::new();
+        kg.reindex_file_v2("src/chunker.rs", "fn internal() { let x = 1; }");
+
+        let tool_input = r#"{"file_path":"src/chunker.rs","old_string":"let x = 1;","new_string":"let x = 2;"}"#;
+        let output = impact_from_diff_v2(&kg, tool_input);
+        assert!(output.is_empty(), "Internal change should produce no output");
+    }
+
+    #[test]
+    fn test_impact_from_diff_v2_invalid_json() {
+        let kg = KnowledgeGraph::new();
+        let output = impact_from_diff_v2(&kg, "not json");
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn test_impact_from_diff_v2_pattern_grouped() {
+        let mut kg = KnowledgeGraph::new();
+        kg.reindex_file_v2("src/chunker.rs", "pub fn chunk_text(t: &str) {}");
+        kg.reindex_file_v2("src/a.rs", "fn a() { chunk_text(\"x\"); }");
+        kg.reindex_file_v2("src/b.rs", "fn b() { chunk_text(\"y\"); }");
+        kg.reindex_file_v2("src/c.rs", "fn c() { chunk_text(\"z\"); }");
+
+        let tool_input = r#"{"file_path":"src/chunker.rs","old_string":"pub fn chunk_text","new_string":"pub fn split_text"}"#;
+        let output = impact_from_diff_v2(&kg, tool_input);
+
+        if !output.is_empty() {
+            let json: serde_json::Value = serde_json::from_str(&output).unwrap();
+            let ctx = json
+                .pointer("/hookSpecificOutput/additionalContext")
+                .unwrap()
+                .as_str()
+                .unwrap();
+            assert!(ctx.contains("IMPACT"), "Report: {}", ctx);
+            assert!(ctx.contains("PATTERNS"), "Report: {}", ctx);
+        }
     }
 }

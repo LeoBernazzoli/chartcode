@@ -1,27 +1,25 @@
-# Graphocode Plugin
+# Graphocode Plugin v2
 
-This project uses the Graphocode knowledge graph plugin. Context is automatically injected via hooks at every step — you don't need to query the KG manually.
+Knowledge graph engine with complete reference graph. Context delivered via auto-generated `.claude/rules/` — not hook injection.
 
-## Available commands
-- `/graphocode:start` — Bootstrap: index all code, conversations, documents
-- `/graphocode:query <entity>` — Query what the KG knows about something
-- `/graphocode:impact <entity>` — See what would break if you change something
-- `/graphocode:decide <decision>` — Record a decision with reasoning
+## How it works
+- SessionStart: `autoclaw sync-rules` generates `.claude/rules/` from KG
+- PreToolUse(Edit|Write): impact analysis with pattern-grouped report (additionalContext JSON)
+- PostToolUse(Edit|Write): `autoclaw reindex` updates reference graph
+- Stop: `autoclaw snapshot` extracts decisions from transcript
 
-## CLI commands (used by hooks automatically)
-- `autoclaw context` — Generate ranked context for re-injection
-- `autoclaw relevant` — Find facts relevant to a query
-- `autoclaw file-context` — Get KG knowledge about a file
-- `autoclaw impact` — Impact analysis for an entity
-- `autoclaw impact-from-diff` — Impact analysis from an edit diff
-- `autoclaw reindex` — Re-parse a file with tree-sitter
-- `autoclaw monitor` — Check context usage percentage
-- `autoclaw tick` — Combined monitor + periodic snapshot
-- `autoclaw snapshot` — Heuristic extraction from transcript
-- `autoclaw reconcile` — Merge extraction results into KG
+## Commands
+- `/graphocode:start` — Bootstrap: index all code + conversations
+- `/graphocode:query <entity>` — Query the KG
+- `/graphocode:impact <entity>` — Impact analysis before modifications
+- `/graphocode:decide <decision>` — Record a decision
+
+## CLI
+- `autoclaw sync-rules` — Regenerate .claude/rules/ from KG
+- `autoclaw impact <entity>` — Show all references + breaking changes
 - `autoclaw bootstrap` — Full project indexing
+- `autoclaw explore <entity>` — Navigate the KG
 
 ## Compact Instructions
-
 Minimal summary: current task and last step only. One line.
-Project context comes from the knowledge graph.
+Project context comes from the knowledge graph via .claude/rules/.

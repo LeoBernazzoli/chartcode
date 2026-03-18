@@ -17,40 +17,99 @@ pub struct BootstrapReport {
 }
 
 /// CHANNEL 1: Index all code files using tree-sitter. Deterministic, 0 tokens.
+/// V2: extracts both definitions AND references for complete code graph.
 pub fn bootstrap_code(kg: &mut KnowledgeGraph, config: &GraphocodeConfig) -> (usize, usize) {
     let mut files = 0;
     let mut entities = 0;
 
+    // First pass: add all entities (definitions)
+    let mut file_list: Vec<(String, String)> = Vec::new(); // (path, code)
     for pattern in &config.sources.code {
         if let Ok(paths) = glob::glob(pattern) {
             for entry in paths.flatten() {
                 let path_str = entry.to_string_lossy().to_string();
-                // Only parse .rs files for now (v1 = Rust)
                 if !path_str.ends_with(".rs") {
                     continue;
                 }
                 if let Ok(code) = std::fs::read_to_string(&entry) {
-                    let parsed = treesitter::parse_rust_code(&code, &path_str);
-                    entities += parsed.len();
-                    for entity in parsed {
-                        let mut node = Node::new(
-                            0,
-                            entity.name,
-                            entity.entity_type,
-                            entity.definition,
-                            1.0,
-                            Source::CodeAnalysis {
-                                file: path_str.clone(),
-                            },
-                        );
-                        node.tier = ImportanceTier::Minor;
-                        let _ = kg.add_node(node);
-                    }
-                    files += 1;
+                    file_list.push((path_str, code));
                 }
             }
         }
     }
+
+    // Pass 1: definitions only (so all entities exist before we resolve references)
+    for (path_str, code) in &file_list {
+        let parsed = treesitter::parse_rust_code(code, path_str);
+        entities += parsed.len();
+        for entity in parsed {
+            let mut node = Node::new(
+                0,
+                entity.name,
+                entity.entity_type,
+                entity.definition,
+                1.0,
+                Source::CodeAnalysis {
+                    file: path_str.clone(),
+                },
+            );
+            node.tier = ImportanceTier::Minor;
+            let _ = kg.add_node(node);
+        }
+        files += 1;
+    }
+
+    // Pass 2: references (now all entities exist, so lookup works)
+    for (path_str, code) in &file_list {
+        let (_, references) = treesitter::parse_rust_code_v2(code, path_str);
+
+        // Create file-level node
+        let file_node_name = path_str.to_string();
+        let file_node_id = if let Some(n) = kg.lookup(&file_node_name) {
+            n.id
+        } else {
+            let mut fnode = Node::new(
+                0,
+                file_node_name,
+                "File".to_string(),
+                format!("Source file {}", path_str),
+                1.0,
+                Source::CodeAnalysis {
+                    file: path_str.clone(),
+                },
+            );
+            fnode.tier = ImportanceTier::Minor;
+            kg.add_node(fnode).unwrap_or(0)
+        };
+
+        // Add reference edges
+        for reference in references {
+            if let Some(target) = kg.lookup(&reference.target_name) {
+                let target_id = target.id;
+                if file_node_id != 0 && file_node_id != target_id {
+                    let ref_type_str = match reference.ref_type {
+                        treesitter::RefType::Calls => "calls",
+                        treesitter::RefType::ReadsField => "reads",
+                        treesitter::RefType::WritesField => "writes",
+                        treesitter::RefType::UsesType => "uses_type",
+                        treesitter::RefType::MethodCall => "calls",
+                    };
+                    let edge = crate::model::Edge::new(
+                        0,
+                        file_node_id,
+                        target_id,
+                        ref_type_str.to_string(),
+                        1.0,
+                        Source::CodeAnalysis {
+                            file: path_str.clone(),
+                        },
+                    );
+                    let _ = kg.add_edge(edge);
+                }
+            }
+        }
+    }
+
     (files, entities)
 }
 
