@@ -154,10 +154,14 @@ fn extract_generic(
 fn is_class_like(kind: &str, style: LangStyle) -> bool {
     match style {
         LangStyle::Python => kind == "class_definition",
-        LangStyle::TypeScript | LangStyle::JavaScript => kind == "class_declaration",
-        LangStyle::Java | LangStyle::CSharp => kind == "class_declaration",
+        LangStyle::TypeScript | LangStyle::JavaScript => {
+            kind == "class_declaration" || kind == "interface_declaration" || kind == "enum_declaration"
+        }
+        LangStyle::Java | LangStyle::CSharp => {
+            kind == "class_declaration" || kind == "interface_declaration" || kind == "enum_declaration"
+        }
         LangStyle::Go => kind == "type_declaration",
-        LangStyle::Rust => false, // handled via impl_item
+        LangStyle::Rust => false,
     }
 }
 
@@ -267,6 +271,14 @@ fn extract_entity_universal(
                     ("", false)
                 }
             }
+            // Enum members: Active = "active"
+            "enum_assignment" => {
+                if parent_type.is_some() {
+                    ("Field", true) // enum variant as field
+                } else {
+                    ("", false)
+                }
+            }
             "export_statement" => {
                 // Check if it exports a function/class declaration
                 // Skip — the child declaration will be caught
@@ -340,7 +352,7 @@ fn extract_entity_universal(
             .and_then(|vd| vd.child_by_field_name("name"))
             .map(|n| node_text(&n, source).to_string())
             .unwrap_or_default()
-    } else if kind == "property_signature" || kind == "public_field_definition" || kind == "field_definition" {
+    } else if kind == "property_signature" || kind == "public_field_definition" || kind == "field_definition" || kind == "enum_assignment" {
         // TS interface/class fields: name might be the first child identifier
         node.child_by_field_name("name")
             .map(|n| node_text(&n, source).to_string())
