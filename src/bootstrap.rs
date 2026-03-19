@@ -122,8 +122,11 @@ pub fn bootstrap_code(kg: &mut KnowledgeGraph, config: &GraphocodeConfig) -> (us
 
         // Add reference edges
         for reference in references {
-            if let Some(target) = kg.lookup(&reference.target_name) {
-                let target_id = target.id;
+            let target_id_opt = kg.lookup(&reference.target_name).map(|n| n.id).or_else(|| {
+                let suffix = format!(".{}", reference.target_name);
+                kg.all_nodes().find(|n| n.name.ends_with(&suffix)).map(|n| n.id)
+            });
+            if let Some(target_id) = target_id_opt {
                 if file_node_id != 0 && file_node_id != target_id {
                     let ref_type_str = match reference.ref_type {
                         treesitter::RefType::Calls => "calls",

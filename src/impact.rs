@@ -168,19 +168,62 @@ pub fn impact_from_diff_v2(kg: &KnowledgeGraph, tool_input: &str) -> String {
         .get("old_string")
         .and_then(|s| s.as_str())
         .unwrap_or("");
+    let file_path = input
+        .get("file_path")
+        .and_then(|s| s.as_str())
+        .unwrap_or("");
     if old_string.is_empty() {
         return String::new();
     }
 
-    // Find entities in the diff
+    // Strategy: find entities DEFINED IN the file being modified that match the diff.
+    // This eliminates false positives from unrelated entities in other files.
     let mut affected: Vec<String> = Vec::new();
-    for node in kg.all_nodes() {
-        let is_relevant = matches!(node.source, Source::CodeAnalysis { .. })
-            || node.node_type == "Decision"
-            || node.node_type == "ErrorResolution";
 
-        if is_relevant && old_string.contains(&node.name) && node.name.len() >= 3 {
-            affected.push(node.name.clone());
+    if !file_path.is_empty() {
+        // Precise mode: only search entities from this specific file
+        for node in kg.all_nodes() {
+            let in_this_file = match &node.source {
+                Source::CodeAnalysis { file } => {
+                    let f = file.trim_start_matches("./");
+                    let fp = file_path.trim_start_matches("./");
+                    f == fp || fp.ends_with(f) || f.ends_with(fp)
+                }
+                _ => false,
+            };
+
+            if in_this_file && node.node_type != "File" && node.node_type != "Import" {
+                // Check if the entity's short name appears in old_string
+                let short_name = if node.name.contains('.') {
+                    node.name.split('.').last().unwrap_or(&node.name)
+                } else {
+                    &node.name
+                };
+                if short_name.len() >= 3 && old_string.contains(short_name) {
+                    affected.push(node.name.clone());
+                }
+            }
+        }
+    }
+
+    // Fallback: if no file_path or no matches in file, search all entities
+    if affected.is_empty() {
+        for node in kg.all_nodes() {
+            let is_relevant = matches!(node.source, Source::CodeAnalysis { .. })
+                || node.node_type == "Decision"
+                || node.node_type == "ErrorResolution";
+
+            if is_relevant && node.node_type != "File" && node.node_type != "Import" {
+                let short_name = if node.name.contains('.') {
+                    node.name.split('.').last().unwrap_or(&node.name)
+                } else {
+                    &node.name
+                };
+                // Require longer names to avoid false positives in fallback
+                if short_name.len() >= 6 && old_string.contains(short_name) {
+                    affected.push(node.name.clone());
+                }
+            }
         }
     }
 
@@ -188,16 +231,30 @@ pub fn impact_from_diff_v2(kg: &KnowledgeGraph, tool_input: &str) -> String {
         return String::new();
     }
 
-    // Get references and group by pattern
+    // Get references using node IDs directly (not lookup which can misroute)
     let mut all_refs = Vec::new();
     let mut entity_label = String::new();
-    for entity in &affected {
-        let refs = kg.references_to(entity);
-        if !refs.is_empty() {
-            if entity_label.is_empty() {
-                entity_label = entity.clone();
+    for entity_name in &affected {
+        // Find the node by exact name
+        let node_id = kg.all_nodes()
+            .find(|n| &n.name == entity_name)
+            .map(|n| n.id);
+
+        if let Some(nid) = node_id {
+            // Count inbound edges directly
+            let refs = kg.references_to(entity_name);
+            if !refs.is_empty() {
+                if entity_label.is_empty() {
+                    entity_label = entity_name.clone();
+                }
+                all_refs.extend(refs);
+            } else {
+                // Try via inbound_reference_count which uses the node ID path
+                let count = kg.inbound_reference_count(entity_name);
+                if count > 0 && entity_label.is_empty() {
+                    entity_label = entity_name.clone();
+                }
             }
-            all_refs.extend(refs);
         }
     }
 

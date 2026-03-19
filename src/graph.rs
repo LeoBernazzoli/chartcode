@@ -352,8 +352,15 @@ impl KnowledgeGraph {
 
         // Add references as edges: file → target entity
         for reference in references {
-            if let Some(target_node) = self.lookup(&reference.target_name) {
-                let target_id = target_node.id;
+            // Try exact lookup first, then try matching "Parent.field" pattern
+            let target = self.lookup(&reference.target_name).map(|n| n.id).or_else(|| {
+                // For field references like "hashed_password", search for "*.hashed_password"
+                let suffix = format!(".{}", reference.target_name);
+                self.all_nodes()
+                    .find(|n| n.name.ends_with(&suffix))
+                    .map(|n| n.id)
+            });
+            if let Some(target_id) = target {
                 if file_node_id != 0 && file_node_id != target_id {
                     let ref_type_str = match reference.ref_type {
                         crate::treesitter::RefType::Calls => "calls",
@@ -378,10 +385,17 @@ impl KnowledgeGraph {
         }
     }
 
-    /// Get all references pointing to an entity by name.
+    /// Get all references pointing to an entity by exact name.
     pub fn references_to(&self, entity_name: &str) -> Vec<crate::treesitter::CodeReference> {
-        let target = match self.lookup(entity_name) {
-            Some(n) => n.id,
+        // Use exact name match first, fallback to lookup
+        let target = self
+            .all_nodes()
+            .find(|n| n.name == entity_name)
+            .map(|n| n.id)
+            .or_else(|| self.lookup(entity_name).map(|n| n.id));
+
+        let target = match target {
+            Some(id) => id,
             None => return Vec::new(),
         };
 

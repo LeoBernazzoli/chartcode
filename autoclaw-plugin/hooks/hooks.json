@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "autoclaw quick-impact 2>/dev/null || true",
+            "command": "autoclaw impact-from-diff 2>/dev/null || true",
             "timeout": 5000
           }
         ]
