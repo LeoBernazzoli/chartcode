@@ -1,0 +1,14 @@
+{
+  "name": "graphcode",
+  "owner": {
+    "name": "Leo Bernazzoli"
+  },
+  "plugins": [
+    {
+      "name": "graphcode",
+      "source": "./autoclaw-plugin",
+      "description": "Knowledge graph for your codebase — gives AI coding agents structural awareness of every function, class, field, and their dependencies. Prevents breaking code across files.",
+      "version": "0.2.0"
+    }
+  ]
+}
