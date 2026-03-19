@@ -1,9 +1,11 @@
 {
-  "name": "graphocode",
+  "name": "graphcode",
   "description": "Knowledge graph for your codebase — gives Claude structural awareness of every function, class, field, and their dependencies. Prevents breaking code across files.",
   "version": "0.2.0",
-  "author": "Leo Bernazzoli",
-  "repository": "https://github.com/leobernazzoli/autoclaw",
+  "author": {
+    "name": "Leo Bernazzoli"
+  },
+  "repository": "https://github.com/LeoBernazzoli/graphcode",
   "license": "Apache-2.0",
   "keywords": ["knowledge-graph", "code-analysis", "impact-analysis", "context-engineering"]
 }
