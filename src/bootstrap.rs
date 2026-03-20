@@ -145,9 +145,9 @@ pub fn bootstrap_code(kg: &mut KnowledgeGraph, config: &GraphocodeConfig) -> (us
     for (path_str, code) in &file_list {
         let (_, references) = treesitter::parse_file(code, path_str);
 
-        // Create file-level node
+        // Create file-level node (use exact match, not substring lookup)
         let file_node_name = path_str.to_string();
-        let file_node_id = if let Some(n) = kg.lookup(&file_node_name) {
+        let file_node_id = if let Some(n) = kg.all_nodes().find(|n| n.name == file_node_name && n.node_type == "File") {
             n.id
         } else {
             let mut fnode = Node::new(
