@@ -625,6 +625,21 @@ fn extract_ref_universal(
             }
         }
     }
+    // TS/JS export statements: "export { TRPCError } from '...'" or "export * from '...'"
+    if kind == "export_specifier" {
+        let name = node.child_by_field_name("name")
+            .map(|n| node_text(&n, source).to_string())
+            .unwrap_or_else(|| node_text(node, source).to_string());
+        if !name.is_empty() && name.len() >= 2 && !is_builtin(&name, style) {
+            refs.push(CodeReference {
+                source_file: file.into(),
+                source_line: node.start_position().row + 1,
+                target_name: name,
+                ref_type: RefType::UsesType,
+            });
+        }
+    }
+
     // TS/JS named imports in import_clause
     if kind == "import_specifier" {
         let name = node.child_by_field_name("name")

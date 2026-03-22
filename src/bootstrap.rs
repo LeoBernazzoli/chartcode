@@ -54,7 +54,10 @@ pub fn bootstrap_code(kg: &mut KnowledgeGraph, config: &GraphocodeConfig) -> (us
     let supported_extensions = ["rs", "py", "ts", "tsx", "js", "jsx", "go", "java", "cs"];
     let mut file_list: Vec<(String, String)> = Vec::new();
 
-    for entry in ignore::Walk::new(".") {
+    for entry in ignore::WalkBuilder::new(".")
+        .hidden(false)  // Don't skip dotfiles/dotdirs (.experimental, .test, etc.)
+        .build()
+    {
         let entry = match entry {
             Ok(e) => e,
             Err(_) => continue,
