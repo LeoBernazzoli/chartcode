@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "autoclaw impact-from-diff 2>/dev/null || true",
+            "command": "graphcode impact-from-diff 2>/dev/null || \"${CLAUDE_PLUGIN_DATA}/bin/graphcode\" impact-from-diff 2>/dev/null || true",
             "timeout": 5000
           }
         ]
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "FILE_PATH=$(cat | jq -r '.tool_input.file_path // empty' 2>/dev/null) && [ -n \"$FILE_PATH\" ] && (autoclaw reindex \"$FILE_PATH\" 2>/dev/null || \"${CLAUDE_PLUGIN_DATA}/bin/autoclaw\" reindex \"$FILE_PATH\" 2>/dev/null) || true"
+            "command": "FILE_PATH=$(cat | jq -r '.tool_input.file_path // empty' 2>/dev/null) && [ -n \"$FILE_PATH\" ] && (graphcode reindex \"$FILE_PATH\" 2>/dev/null || \"${CLAUDE_PLUGIN_DATA}/bin/graphcode\" reindex \"$FILE_PATH\" 2>/dev/null) || true"
           }
         ]
       }
@@ -38,7 +38,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "(autoclaw snapshot \"$TRANSCRIPT_PATH\" --all-since-last 2>/dev/null || \"${CLAUDE_PLUGIN_DATA}/bin/autoclaw\" snapshot \"$TRANSCRIPT_PATH\" --all-since-last 2>/dev/null) || true"
+            "command": "(graphcode snapshot \"$TRANSCRIPT_PATH\" --all-since-last 2>/dev/null || \"${CLAUDE_PLUGIN_DATA}/bin/graphcode\" snapshot \"$TRANSCRIPT_PATH\" --all-since-last 2>/dev/null) || true"
           }
         ]
       }

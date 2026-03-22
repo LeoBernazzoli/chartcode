@@ -1,5 +1,5 @@
 ---
-name: graphocode-impact
+name: graphcode-impact
 description: Run impact analysis to see what would be affected by changing an entity
 disable-model-invocation: true
 allowed-tools: Bash

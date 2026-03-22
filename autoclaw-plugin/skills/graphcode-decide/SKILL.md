@@ -1,5 +1,5 @@
 ---
-name: graphocode-decide
+name: graphcode-decide
 description: Record a decision in the knowledge graph with reasoning and alternatives considered
 allowed-tools: Bash
 ---

@@ -1,9 +1,10 @@
 [package]
-name = "autoclaw"
-version = "0.1.0"
+name = "graphcode"
+version = "0.4.0"
 edition = "2024"
-description = "A persistent knowledge graph engine for AI agents"
+description = "Knowledge graph for your codebase — gives AI coding agents structural awareness"
 license = "Apache-2.0"
+repository = "https://github.com/LeoBernazzoli/graphcode"
 
 [lib]
 name = "autoclaw"
@@ -22,13 +23,7 @@ ignore = "0.4"
 regex = "1"
 thiserror = "2"
 toml = "0.8"
-stack-graphs = "0.14"
 tree-sitter = "0.24"
-tree-sitter-stack-graphs = "0.10"
-tree-sitter-stack-graphs-python = "0.3"
-tree-sitter-stack-graphs-typescript = "0.4"
-tree-sitter-stack-graphs-javascript = "0.3"
-tree-sitter-stack-graphs-java = "0.5"
 tree-sitter-rust = "0.23"
 tree-sitter-python = "0.23"
 tree-sitter-typescript = "0.23"
@@ -42,5 +37,5 @@ pyo3 = { version = "0.24", features = ["extension-module"], optional = true }
 tempfile = "3"
 
 [[bin]]
-name = "autoclaw"
+name = "graphcode"
 path = "src/main.rs"

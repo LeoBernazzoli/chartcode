@@ -18,14 +18,14 @@ fn main() {
         "topics" => cmd_topics(&kg_path),
         "explore" => {
             if args.len() < 3 {
-                eprintln!("Usage: autoclaw explore <entity_name>");
+                eprintln!("Usage: graphcode explore <entity_name>");
                 std::process::exit(1);
             }
             cmd_explore(&kg_path, &args[2]);
         }
         "connect" => {
             if args.len() < 4 {
-                eprintln!("Usage: autoclaw connect <entity_a> <entity_b>");
+                eprintln!("Usage: graphcode connect <entity_a> <entity_b>");
                 std::process::exit(1);
             }
             cmd_connect(&kg_path, &args[2], &args[3]);
@@ -169,7 +169,7 @@ fn main() {
         }
         "impact" => {
             if args.len() < 3 {
-                eprintln!("Usage: autoclaw impact <entity_name> [--depth N]");
+                eprintln!("Usage: graphcode impact <entity_name> [--depth N]");
                 std::process::exit(1);
             }
             let entity_name = &args[2];
@@ -279,7 +279,7 @@ fn main() {
             let idx_content = match std::fs::read_to_string(&idx_path) {
                 Ok(c) => c,
                 Err(_) => {
-                    eprintln!("No index file. Run: autoclaw build-index");
+                    eprintln!("No index file. Run: graphcode build-index");
                     std::process::exit(0);
                 }
             };
@@ -335,7 +335,7 @@ fn main() {
         }
         "reindex" => {
             if args.len() < 3 {
-                eprintln!("Usage: autoclaw reindex <file_path>");
+                eprintln!("Usage: graphcode reindex <file_path>");
                 std::process::exit(1);
             }
             let file_path = &args[2];
@@ -381,7 +381,7 @@ fn main() {
         }
         "tick" => {
             if args.len() < 3 {
-                eprintln!("Usage: autoclaw tick <transcript_path> [--snapshot-every N] [--threshold N] [--window N]");
+                eprintln!("Usage: graphcode tick <transcript_path> [--snapshot-every N] [--threshold N] [--window N]");
                 std::process::exit(1);
             }
             let transcript = &args[2];
@@ -434,7 +434,7 @@ fn main() {
         }
         "monitor" => {
             if args.len() < 3 {
-                eprintln!("Usage: autoclaw monitor <transcript_path> [--threshold N] [--window N]");
+                eprintln!("Usage: graphcode monitor <transcript_path> [--threshold N] [--window N]");
                 std::process::exit(1);
             }
             let transcript = &args[2];
@@ -473,7 +473,7 @@ fn main() {
         }
         "file-context" => {
             if args.len() < 3 {
-                eprintln!("Usage: autoclaw file-context <file_path> [--budget N]");
+                eprintln!("Usage: graphcode file-context <file_path> [--budget N]");
                 std::process::exit(1);
             }
             let file_path = &args[2];
@@ -491,7 +491,7 @@ fn main() {
         }
         "relevant" => {
             if args.len() < 3 {
-                eprintln!("Usage: autoclaw relevant <query> [--budget N]");
+                eprintln!("Usage: graphcode relevant <query> [--budget N]");
                 std::process::exit(1);
             }
             let query = &args[2];
@@ -530,9 +530,9 @@ fn main() {
 
 fn print_usage() {
     println!(
-        r#"autoclaw - A persistent knowledge graph engine for AI agents
+        r#"graphcode - Knowledge graph for your codebase engine for AI agents
 
-Usage: autoclaw <command> [args]
+Usage: graphcode <command> [args]
 
 Navigation:
   stats                          Show graph statistics
