@@ -565,6 +565,21 @@ fn extract_ref_universal(
             });
         }
     }
+
+    // ── KEYWORD ARGUMENTS (Python: password_hash=value → WritesField) ──
+    if kind == "keyword_argument" {
+        if let Some(name_node) = node.child_by_field_name("name") {
+            let name = node_text(&name_node, source).to_string();
+            if name.len() >= 3 && !is_builtin(&name, style) {
+                refs.push(CodeReference {
+                    source_file: file.into(),
+                    source_line: node.start_position().row + 1,
+                    target_name: name,
+                    ref_type: RefType::WritesField,
+                });
+            }
+        }
+    }
 }
 
 fn is_builtin(name: &str, style: LangStyle) -> bool {
@@ -802,6 +817,20 @@ fn extract_references(
                     target_name: name,
                     ref_type: RefType::UsesType,
                 });
+            }
+        }
+        // Python/TS keyword arguments: password_hash=value → WritesField
+        "keyword_argument" => {
+            if let Some(name_node) = node.child_by_field_name("name") {
+                let name = node_text(&name_node, source).to_string();
+                if name.len() >= 3 {
+                    refs.push(CodeReference {
+                        source_file: file.into(),
+                        source_line: node.start_position().row + 1,
+                        target_name: name,
+                        ref_type: RefType::WritesField,
+                    });
+                }
             }
         }
         _ => {}
