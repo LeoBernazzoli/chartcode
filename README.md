@@ -1,251 +1,113 @@
-# autoclaw
+<p align="center">
+  <h1 align="center">Graphcode</h1>
+</p>
 
-**AI coding tools don't understand your codebase.**
+<p align="center">
+  <strong>Your AI coding agent doesn't understand your codebase. This fixes that.</strong>
+</p>
 
-Autoclaw is an open-source memory and code understanding layer for AI coding tools. It gives coding agents persistent project memory and structural awareness of the codebase, so they stop losing context and stop making blind changes.
+<p align="center">
+  <a href="#the-problem">The Problem</a> &nbsp;&bull;&nbsp;
+  <a href="#what-graphcode-does">What It Does</a> &nbsp;&bull;&nbsp;
+  <a href="#how-it-works">How It Works</a> &nbsp;&bull;&nbsp;
+  <a href="#accuracy">Accuracy</a> &nbsp;&bull;&nbsp;
+  <a href="#get-started">Get Started</a>
+</p>
 
-Designed to sit under Claude, Codex, Cursor, and similar AI coding workflows. Local-first. Powered by a persistent knowledge graph.
-
-[Quick Start](#quick-start) • [Why](#why-autoclaw) • [How It Works](#how-it-works) • [Current Workflow](#current-workflow) • [CLI](#cli) • [Python SDK](#python-sdk) • [Design Docs](#design-docs)
+<p align="center">
+  <a href="https://github.com/LeoBernazzoli/graphcode/stargazers"><img src="https://img.shields.io/github/stars/LeoBernazzoli/graphcode?style=flat" alt="Stars"></a>
+  <a href="https://github.com/LeoBernazzoli/graphcode/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License"></a>
+  <a href="https://github.com/LeoBernazzoli/graphcode"><img src="https://img.shields.io/badge/lang-Rust-orange" alt="Rust"></a>
+</p>
 
 ---
 
-## Why Autoclaw
+## The Problem
 
-Most AI coding tools can write code. They still fail in the same ways:
+AI coding agents break things. Not because they're bad at writing code, but because they're blind.
 
-- They forget decisions after long sessions
-- They lose context across restarts and compaction
-- They edit code without understanding dependencies or blast radius
-- They force you to restate project context over and over
+They don't know that the function they're renaming is called from 14 other files. They don't know that the field they're deleting is read by a component on the other side of the codebase. They don't know that the class they're modifying has 122 fields and is the most connected entity in the entire project.
 
-Autoclaw is built to make those tools more reliable on real codebases.
+They write code in the dark, and you pay the price.
 
-It does that with two internal engines:
+## What Graphcode Does
 
-### 1. Memory Engine
+Graphcode builds a **knowledge graph of your entire codebase** before your AI agent touches a single line.
 
-Persistent memory for project decisions, conversation history, and evolving project context.
+Every function, class, field, import, type annotation, keyword argument, and re-export is mapped. Every cross-file dependency is tracked. When your agent is about to edit a file, Graphcode tells it exactly what will break.
 
-### 2. Code Understanding Engine
-
-Structural understanding of files, symbols, references, and change impact.
-
-Together, they give AI coding tools what they are usually missing: continuity and grounded code understanding.
-
-## What You Get
-
-- Better continuity across sessions
-- Less context loss
-- More grounded edits
-- Safer changes on growing codebases
-- Less repeated prompting and restating of project context
-
-## Quick Start
-
-Autoclaw is still alpha. The most complete workflow today is the local CLI plus the Claude-oriented assets in [`autoclaw-plugin/`](./autoclaw-plugin), but the product direction is broader: a memory and code understanding layer for AI coding tools in general.
-
-### 1. Install the CLI
-
-From a local checkout:
-
-```bash
-cargo install --path . --no-default-features
-```
-
-If you want to run it without installing:
-
-```bash
-cargo run --no-default-features -- --help
-```
-
-### 2. Add a `graphocode.toml`
-
-Use the repo's default config or start with this:
-
-```toml
-[sources]
-code = ["**/*.rs", "**/*.py", "**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", "**/*.go", "**/*.java", "**/*.cs"]
-conversations = true
-documents = []
-
-[bootstrap]
-on_first_session = true
-snapshot_every = 20
-
-[extraction]
-threshold = 85
-budget = 2000
-model = "haiku"
-
-[impact]
-enabled = true
-depth = 2
-```
-
-### 3. Bootstrap the project
-
-```bash
-autoclaw init
-```
-
-This currently:
-
-- bootstraps code and project sources into a local `.kg`
-- builds a fast index for hook-time lookups
-- generates `.claude/rules/` from the graph
-
-`autoclaw init` is currently the high-level convenience path around bootstrap plus rule generation.
-
-### 4. Query the graph
-
-```bash
-autoclaw stats
-autoclaw explore lookup
-autoclaw impact lookup --depth 2
-autoclaw relevant "where is authentication state handled?" --budget 800
-autoclaw file-context src/main.rs --budget 800
-```
+No embeddings. No LLM calls. No cloud. Just deterministic code analysis powered by tree-sitter, running locally in milliseconds.
 
 ## How It Works
 
-Autoclaw is one product with two engines inside it.
+Graphcode runs as a **Claude Code plugin** (Codex support coming). Three things happen:
 
-### Memory Engine
+**1. Bootstrap** &mdash; On first run, Graphcode parses every source file with tree-sitter and builds the dependency graph. A 900-file TypeScript + Python project takes about 10 seconds.
 
-The memory side stores structured project context over time:
+**2. Path-specific rules** &mdash; For every file in your project, Graphcode generates a `.claude/rules/` file listing its entities, their reference counts, and which files depend on them. These rules load automatically when the AI opens that file.
 
-- decisions
-- useful conversation history
-- technical facts
-- error resolutions
-- project-specific context that should survive session boundaries
+**3. Live impact analysis** &mdash; Before every Edit or Write, a PreToolUse hook runs impact analysis in ~50ms. The AI sees which files will be affected before it makes the change.
 
-The goal is not "store everything forever." The goal is to keep the right context alive so the next agent run starts from project reality instead of starting cold.
+The result: your AI agent knows, before writing a single character, that renaming `password_hash` will affect `auth/__init__.py`, `routes/auth.py`, and `tests/test_auth.py`.
 
-### Code Understanding Engine
+## Accuracy
 
-The code understanding side builds a graph of the codebase:
+We tested against three open-source projects with manually verified ground truth:
 
-- files
-- functions, methods, structs, classes, fields
-- references and cross-file dependencies
-- impact surface for a proposed change
+| Project | Entity | Files Found | True Refs | Accuracy |
+|---------|--------|------------|-----------|----------|
+| **FastAPI** | `Depends` | 128+ | 128 | 100% |
+| **FastAPI** | `FastAPI` | 435+ | 435 | 100% |
+| **tRPC** | `TRPCError` | 56 | 56 | 100% |
+| **tRPC** | `initTRPC` | 165 | 166 | 99% |
+| **httpx** | `Request` | 33 | 33 | 100% |
+| **httpx** | `TimeoutException` | 3 | 3 | 100% |
 
-This is what turns blind edits into informed edits.
+Zero false positives. No LLM involved. Pure static analysis.
 
-### Under The Hood
+Supported languages: **Python, TypeScript, JavaScript, Java, Go, Rust, C#**.
 
-Both engines feed the same local knowledge graph:
+## What It Catches
 
-- persisted to a single `.kg` file
-- stored locally, no hosted service required
-- no database or server required
-- the core does not call external APIs on its own
-- queryable through CLI and Python bindings
-- designed to support hook-driven AI coding workflows
+Things your AI agent currently misses:
 
-## Current Workflow
+- Cross-file field access (`user.password_hash` in `routes/auth.py` references `User.password_hash` in `models.py`)
+- Re-exports through `__init__.py` and barrel files (`from ._exceptions import *`)
+- Monorepo package imports (`import { TRPCError } from '@trpc/server'`)
+- Transitive dependencies (A imports B which re-exports from C)
+- Keyword argument writes (`create_user(password_hash=value)`)
+- Named import tracking (`from models import User, APIKey`)
+- TypeScript export specifiers (`export { TRPCError }`)
 
-Today, the strongest workflow in this repo is:
+## Get Started
 
-1. Index a project with `autoclaw init` or `autoclaw bootstrap`
-2. Generate path-specific rules with `autoclaw sync-rules`
-3. Use impact analysis before changes with `autoclaw impact` or `autoclaw impact-from-diff`
-4. Reindex touched files with `autoclaw reindex`
-5. Pull targeted context with `autoclaw relevant` and `autoclaw file-context`
+**As a Claude Code plugin:**
 
-The repo also includes Claude-oriented hook and skill assets under [`autoclaw-plugin/`](./autoclaw-plugin).
-
-## CLI
-
-### Core graph commands
-
-```bash
-autoclaw stats
-autoclaw topics
-autoclaw explore <entity>
-autoclaw connect <a> <b>
-autoclaw recent
-autoclaw export
+```
+/plugin marketplace add LeoBernazzoli/graphcode
+/plugin install graphcode
+/graphcode:start
 ```
 
-### Coding workflow commands
+**As a standalone CLI:**
 
-```bash
+```
+cargo install --path .
+cd your-project
 autoclaw init
-autoclaw bootstrap [--config graphocode.toml]
-autoclaw sync-rules
-autoclaw context [budget]
-autoclaw impact <entity> [--depth 2]
-autoclaw impact-from-diff
-autoclaw reindex <file_path>
-autoclaw relevant <query> [--budget N]
-autoclaw file-context <path> [--budget N]
-autoclaw monitor <transcript> [--threshold N] [--window N]
-autoclaw tick <transcript> [--snapshot-every N] [--threshold N] [--window N]
 ```
 
-Set `AUTOCLAW_KG` to control where the graph is stored:
+That's it. The knowledge graph is built, rules are generated, and your AI agent now understands your codebase.
 
-```bash
-export AUTOCLAW_KG=./knowledge.kg
-```
+## Architecture
 
-## Python SDK
+Built in Rust. Single binary. No dependencies beyond tree-sitter.
 
-The repo still exposes the underlying knowledge graph engine as a Python SDK. That part of the project is useful on its own, but it is no longer the best top-level way to think about Autoclaw.
-
-Under the hood, the SDK prepares structured prompts, accepts agent-produced JSON, validates it, deduplicates entities, and persists the graph locally.
-
-```python
-from autoclaw import PyKnowledgeGraph as KnowledgeGraph
-
-kg = KnowledgeGraph("./brain.kg")
-
-# Agent suggests ontology and extraction output
-prompt = kg.analyze_content("your document text here...")
-kg.update_ontology(agent_response)
-
-prompt = kg.prepare_extraction("your document text here...")
-report = kg.ingest(agent_response)
-
-# Query the graph
-node = kg.lookup("Marco Bianchi")
-neighbors = kg.neighbors("Marco Bianchi")
-path = kg.connect("Marco Bianchi", "Budget Q3")
-
-kg.save()
-```
-
-## What Makes This Different
-
-Autoclaw is not trying to be another coding agent.
-
-It is trying to become the missing layer under coding agents:
-
-- memory that survives beyond one fragile session
-- code understanding that is grounded in real project structure
-- impact awareness before edits
-- local project context without constant prompt rebuilding
-
-## Status
-
-Alpha, active development.
-
-The project is in transition from a generic document-memory SDK toward a broader memory + code understanding product for AI coding tools. Today the repo includes:
-
-- a Rust knowledge graph core
-- local `.kg` persistence
-- a CLI for indexing, graph queries, impact analysis, and context lookup
-- a Python SDK for the underlying graph engine
-- Claude-oriented plugin assets and design work for deeper coding-tool integration
-
-## Design Docs
-
-- [Graphocode v2 design](./docs/superpowers/specs/2026-03-18-graphocode-v2-design.md)
-- [Claude Code plugin design](./docs/superpowers/specs/2026-03-16-autoclaw-claude-code-plugin-design.md)
-- [Original design document](./DESIGN.md)
+- **Bootstrap**: tree-sitter AST parsing for 7 languages
+- **Import resolution**: tiered system (same-file, import-scoped, transitive, global) inspired by GitNexus
+- **Impact analysis**: ~50ms per query on 30K+ node graphs
+- **Storage**: single `.kg` MessagePack file, no database
+- **Plugin**: 4 hooks (SessionStart, PreToolUse, PostToolUse, Stop) + 4 skills
 
 ## License
 
