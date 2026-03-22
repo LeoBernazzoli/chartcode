@@ -271,7 +271,36 @@ pub fn bootstrap_code(kg: &mut KnowledgeGraph, config: &GraphocodeConfig) -> (us
             }
             if let Some(resolved) = resolve_import_to_file(&module_name, path_str, &all_files_set)
             {
-                imported_files.insert(resolved);
+                imported_files.insert(resolved.clone());
+
+                // Python: "from package import submodule" — also resolve submodule files
+                // e.g. "from rest_framework import serializers" → rest_framework/serializers.py
+                let first_line = imp.lines().next().unwrap_or("");
+                if first_line.contains(" import ") && !first_line.starts_with("import ") {
+                    let after_import = first_line.split(" import ").last().unwrap_or("");
+                    let resolved_dir = std::path::Path::new(&resolved)
+                        .parent()
+                        .map(|p| p.to_string_lossy().to_string());
+                    if let Some(rdir) = resolved_dir {
+                        // If resolved is __init__.py, the dir is the package dir
+                        let pkg_dir = if resolved.ends_with("__init__.py") || resolved.ends_with("index.ts") || resolved.ends_with("index.js") {
+                            rdir
+                        } else {
+                            String::new()
+                        };
+                        if !pkg_dir.is_empty() {
+                            for name_part in after_import.split(',') {
+                                let name = name_part.trim().split_whitespace().next().unwrap_or("").trim_matches('(').trim();
+                                if !name.is_empty() && name.chars().next().map(|c| c.is_lowercase()).unwrap_or(false) {
+                                    // Might be a submodule — try to resolve as file
+                                    if let Some(sub) = resolve_import_to_file(name, &resolved, &all_files_set) {
+                                        imported_files.insert(sub);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
         if !imported_files.is_empty() {
