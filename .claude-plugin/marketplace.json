@@ -8,8 +8,8 @@
       "name": "chartcode",
       "source": "./autoclaw-plugin",
       "description": "Knowledge graph for your codebase \u2014 gives AI coding agents structural awareness of every function, class, field, and their dependencies. Prevents breaking code across files.",
-      "version": "0.4.0"
+      "version": "0.4.1"
     }
   ],
-  "version": "0.4.0"
+  "version": "0.4.1"
 }
