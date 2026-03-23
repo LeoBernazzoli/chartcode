@@ -78,11 +78,11 @@ pub fn generate_project_map(kg: &KnowledgeGraph) -> String {
     ));
     if decision_count > 0 {
         output.push_str(&format!(
-            "Decisioni architetturali attive: {} (autoclaw explore <nome>)\n",
+            "Decisioni architetturali attive: {} (chartcode explore <nome>)\n",
             decision_count
         ));
     }
-    output.push_str("Usa: autoclaw impact <entità> prima di rename/refactor\n\n");
+    output.push_str("Usa: chartcode impact <entità> prima di rename/refactor\n\n");
 
     // Compute PageRank for file-level ranking
     let edges: Vec<(String, String)> = kg
@@ -173,7 +173,7 @@ pub fn generate_decisions_rule(kg: &KnowledgeGraph) -> String {
 
     if decisions.is_empty() {
         output.push_str("Nessuna decisione architetturale registrata.\n");
-        output.push_str("Usa /graphocode:decide per registrare decisioni.\n");
+        output.push_str("Usa /chartcode:decide per registrare decisioni.\n");
         return output;
     }
 
@@ -186,7 +186,7 @@ pub fn generate_decisions_rule(kg: &KnowledgeGraph) -> String {
         output.push_str(&format!("{}: {}\n", prefix, node.definition));
     }
 
-    output.push_str("\nUSARE autoclaw impact prima di ogni rename o cambio di signature\n");
+    output.push_str("\nUSARE chartcode impact prima di ogni rename o cambio di signature\n");
     output
 }
 
@@ -271,10 +271,10 @@ pub fn generate_file_rule(kg: &KnowledgeGraph, file_path: &str) -> String {
 
     // Imperative instructions
     if !structs.is_empty() {
-        output.push_str("\nSE MODIFICHI STRUCT: autoclaw impact <nome> per vedere tutti i riferimenti\n");
+        output.push_str("\nSE MODIFICHI STRUCT: chartcode impact <nome> per vedere tutti i riferimenti\n");
     }
     if !functions.is_empty() {
-        output.push_str("SE RINOMINI FUNZIONE: autoclaw impact <nome> prima di procedere\n");
+        output.push_str("SE RINOMINI FUNZIONE: chartcode impact <nome> prima di procedere\n");
     }
 
     output

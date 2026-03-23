@@ -12,7 +12,7 @@ Shows all references to an entity and detects potential breaking changes before 
 ## Usage
 
 ```bash
-autoclaw impact "$ARGUMENTS" --depth 2
+chartcode impact "$ARGUMENTS" --depth 2
 ```
 
 Present the full impact report to the user, highlighting any breaking changes.

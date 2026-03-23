@@ -33,10 +33,10 @@ fn main() {
         "recent" => cmd_recent(&kg_path),
         "export" => cmd_export(&kg_path),
         "init" => {
-            eprintln!("Graphocode: initializing project...");
+            eprintln!("Chartcode: initializing project...");
 
             // 1. Bootstrap
-            let config_path = std::path::Path::new("graphocode.toml");
+            let config_path = std::path::Path::new("chartcode.toml");
             let config = autoclaw::config::load_config(config_path);
             let mut kg = load_kg(&kg_path);
             let project_path = std::env::current_dir().unwrap_or_else(|_| ".".into());
@@ -63,7 +63,7 @@ fn main() {
             // 3. Summary
             let stats = kg.stats();
             eprintln!();
-            eprintln!("Graphocode ready:");
+            eprintln!("Chartcode ready:");
             eprintln!("  {} nodes, {} edges", stats.node_count, stats.edge_count);
             eprintln!("  {} rule files (path-specific, 96% adherence)", rule_count);
             eprintln!();
@@ -140,7 +140,7 @@ fn main() {
                 .position(|a| a == "--config")
                 .and_then(|i| args.get(i + 1))
                 .map(|s| s.as_str())
-                .unwrap_or("graphocode.toml");
+                .unwrap_or("chartcode.toml");
 
             let config = autoclaw::config::load_config(std::path::Path::new(config_path));
             let mut kg = load_kg(&kg_path);
@@ -164,7 +164,7 @@ fn main() {
                     "\n{} conversations ready for Haiku semantic extraction.",
                     report.conversation_texts.len()
                 );
-                println!("Run /graphocode:start to complete extraction with LLM.");
+                println!("Run /chartcode:start to complete extraction with LLM.");
             }
         }
         "impact" => {

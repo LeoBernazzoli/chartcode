@@ -43,7 +43,7 @@ Parse the user's decision from $ARGUMENTS and persist it in the knowledge graph.
 
 4. Pipe to reconcile:
    ```bash
-   echo '<json>' | autoclaw reconcile
+   echo '<json>' | chartcode reconcile
    ```
 
 5. Confirm to the user that the decision has been recorded.

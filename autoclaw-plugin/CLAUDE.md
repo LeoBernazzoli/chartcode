@@ -1,4 +1,4 @@
-# Graphocode
+# Chartcode
 
 This project has a knowledge graph with every function, class, field, and their cross-file dependencies indexed.
 

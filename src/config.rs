@@ -207,7 +207,7 @@ code = ["**/*.py"]
 
     #[test]
     fn test_load_nonexistent_file() {
-        let config = load_config(Path::new("/nonexistent/graphocode.toml"));
+        let config = load_config(Path::new("/nonexistent/chartcode.toml"));
         assert_eq!(config.extraction.threshold, 85); // defaults
     }
 

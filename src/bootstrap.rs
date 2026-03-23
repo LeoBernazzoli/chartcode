@@ -702,7 +702,7 @@ pub fn bootstrap_documents(config: &GraphocodeConfig) -> Vec<(String, String)> {
 /// Full bootstrap: runs all three channels.
 /// Code indexing is done entirely in Rust (deterministic, 0 tokens).
 /// Conversations and documents produce text that needs to be passed to Haiku
-/// for semantic extraction (done by the /graphocode:start skill which orchestrates LLM calls).
+/// for semantic extraction (done by the /chartcode:start skill which orchestrates LLM calls).
 pub fn bootstrap(
     kg: &mut KnowledgeGraph,
     config: &GraphocodeConfig,

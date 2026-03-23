@@ -10,20 +10,20 @@ if [ -z "$TRANSCRIPT_PATH" ]; then
 fi
 
 # 1. Run heuristic snapshot first (instant, 0 tokens)
-autoclaw snapshot "$TRANSCRIPT_PATH" --all-since-last 2>/dev/null || true
+chartcode snapshot "$TRANSCRIPT_PATH" --all-since-last 2>/dev/null || true
 
 # 2. Tree-sitter refresh of recently modified files
 # Find files modified since last commit
 git diff --name-only HEAD 2>/dev/null | while read -r file; do
     if [ -f "$file" ] && [[ "$file" == *.rs ]]; then
-        autoclaw reindex "$file" 2>/dev/null || true
+        chartcode reindex "$file" 2>/dev/null || true
     fi
 done
 
 # Also check unstaged changes
 git diff --name-only 2>/dev/null | while read -r file; do
     if [ -f "$file" ] && [[ "$file" == *.rs ]]; then
-        autoclaw reindex "$file" 2>/dev/null || true
+        chartcode reindex "$file" 2>/dev/null || true
     fi
 done
 
