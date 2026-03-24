@@ -364,6 +364,8 @@ fn extract_entity_universal(
                     .map(|c| node_text(&c, source).to_string())
             })
             .unwrap_or_default()
+    } else if kind == "field_declaration" {
+        find_variable_declarator_name(node, source).unwrap_or_default()
     } else {
         node.child_by_field_name("name")
             .map(|n| node_text(&n, source).to_string())
@@ -409,6 +411,35 @@ fn extract_entity_universal(
         line_start: node.start_position().row + 1,
         line_end: node.end_position().row + 1,
     });
+}
+
+fn find_variable_declarator_name(node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
+    if node.kind() == "variable_declarator" {
+        if let Some(name_node) = node.child_by_field_name("name") {
+            let name = node_text(&name_node, source).to_string();
+            if !name.is_empty() {
+                return Some(name);
+            }
+        }
+        let mut cursor = node.walk();
+        if let Some(identifier) = node
+            .children(&mut cursor)
+            .find(|child| child.kind() == "identifier")
+        {
+            let name = node_text(&identifier, source).to_string();
+            if !name.is_empty() {
+                return Some(name);
+            }
+        }
+    }
+
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if let Some(name) = find_variable_declarator_name(&child, source) {
+            return Some(name);
+        }
+    }
+    None
 }
 
 /// Extract references — mostly universal across languages.
@@ -1734,6 +1765,49 @@ public class UserService {
             "Should find method: {:?}", entities);
         assert!(entities.iter().any(|e| e.entity_type == "Import"),
             "Should find import: {:?}", entities);
+    }
+
+    #[test]
+    fn test_parse_file_java_field_and_constructor_type_references() {
+        let code = r#"
+class PetController {
+    private final OwnerRepository owners;
+
+    public PetController(OwnerRepository owners) {
+        this.owners = owners;
+    }
+}
+"#;
+        let (_entities, refs) = parse_file(code, "PetController.java");
+        let owner_refs: Vec<_> = refs
+            .iter()
+            .filter(|r| r.target_name == "OwnerRepository" && r.ref_type == RefType::UsesType)
+            .collect();
+        assert!(
+            !owner_refs.is_empty(),
+            "Should find Java type references to OwnerRepository: {:?}",
+            refs
+        );
+    }
+
+    #[test]
+    fn test_parse_file_java_field_entity_uses_variable_name_not_type_name() {
+        let code = r#"
+class PetController {
+    private final OwnerRepository owners;
+}
+"#;
+        let (entities, _refs) = parse_file(code, "PetController.java");
+        assert!(
+            entities.iter().any(|e| e.name == "PetController.owners" && e.entity_type == "Field"),
+            "Should extract Java field entity using variable name: {:?}",
+            entities
+        );
+        assert!(
+            !entities.iter().any(|e| e.name == "PetController.OwnerRepository" && e.entity_type == "Field"),
+            "Should not extract Java field entity using type name: {:?}",
+            entities
+        );
     }
 
     #[test]

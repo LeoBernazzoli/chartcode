@@ -831,6 +831,8 @@ pub fn bootstrap(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::impact::reference_files_for_entity;
+    use tempfile::tempdir;
 
     #[test]
     fn test_normalize_code_path() {
@@ -900,6 +902,49 @@ mod tests {
                 "Code entities should be Minor tier"
             );
         }
+    }
+
+    #[test]
+    fn test_bootstrap_java_same_package_type_reference_resolution() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("OwnerRepository.java"),
+            r#"
+package com.example;
+
+public interface OwnerRepository {}
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("OwnerController.java"),
+            r#"
+package com.example;
+
+class OwnerController {
+    private final OwnerRepository owners;
+
+    OwnerController(OwnerRepository owners) {
+        this.owners = owners;
+    }
+}
+"#,
+        )
+        .unwrap();
+
+        let mut kg = KnowledgeGraph::new();
+        let config = GraphocodeConfig::default();
+        let (files, entities) = bootstrap_code_at(&mut kg, &config, dir.path());
+
+        assert_eq!(files, 2, "Should index both Java files");
+        assert!(entities > 0, "Should extract Java entities");
+
+        let references = reference_files_for_entity(&kg, "OwnerRepository");
+        assert!(
+            references.contains("OwnerController.java"),
+            "Expected OwnerController.java to reference OwnerRepository, got {:?}",
+            references
+        );
     }
 
     #[test]

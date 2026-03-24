@@ -9,6 +9,11 @@ url = "https://github.com/encode/httpx.git"
 commit = "b5addb64f0161ff6bfe94c124ef76f6a1fba5254"
 
 [[repositories]]
+name = "spring-petclinic"
+url = "https://github.com/spring-projects/spring-petclinic.git"
+commit = "edf4db28affcc4741c79850a3d95bc3f177b5ff9"
+
+[[repositories]]
 name = "trpc"
 url = "https://github.com/trpc/trpc.git"
 commit = "9b42e02fa7acf2f203b4b1c77c12e41b7a04b4fb"

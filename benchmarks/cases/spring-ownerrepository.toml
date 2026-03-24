@@ -1,0 +1,12 @@
+name = "spring-ownerrepository"
+repo = "spring-petclinic"
+entity = "OwnerRepository"
+expected_files = [
+  "src/main/java/org/springframework/samples/petclinic/owner/OwnerController.java",
+  "src/main/java/org/springframework/samples/petclinic/owner/PetController.java",
+  "src/main/java/org/springframework/samples/petclinic/owner/VisitController.java",
+  "src/test/java/org/springframework/samples/petclinic/owner/OwnerControllerTests.java",
+  "src/test/java/org/springframework/samples/petclinic/owner/PetControllerTests.java",
+  "src/test/java/org/springframework/samples/petclinic/owner/VisitControllerTests.java",
+  "src/test/java/org/springframework/samples/petclinic/service/ClinicServiceTests.java",
+]
