@@ -1,36 +1,21 @@
+use crate::accuracy::normalize_file_path;
 use crate::graph::{Direction, KnowledgeGraph};
 use crate::model::Source;
+use std::collections::BTreeSet;
 
 /// Analyze the impact of modifying an entity.
 /// Returns markdown report of all references and breaking changes.
 pub fn impact_analysis(kg: &KnowledgeGraph, entity_name: &str, depth: usize) -> String {
-    // Find ALL nodes matching this name (there may be multiple, e.g. User in different files)
-    let matching_nodes: Vec<_> = kg
-        .all_nodes()
-        .filter(|n| n.name == entity_name && n.node_type != "File" && n.node_type != "Import")
-        .collect();
+    let matching_nodes = resolve_matching_nodes(kg, entity_name);
+    let matching_ids: Vec<u64> = matching_nodes.iter().map(|n| n.id).collect();
+    if matching_ids.is_empty() {
+        return format!("No entity found: {}", entity_name);
+    }
 
-    // Fallback: try suffix match (e.g. "password_hash" → "User.password_hash")
-    let matching_nodes = if matching_nodes.is_empty() {
-        let suffix = format!(".{}", entity_name);
-        kg.all_nodes()
-            .filter(|n| n.name.ends_with(&suffix) && n.node_type != "Import")
-            .collect()
-    } else {
-        matching_nodes
-    };
-
-    // Fallback: fuzzy lookup
-    let matching_ids: Vec<u64> = if matching_nodes.is_empty() {
-        match kg.lookup(entity_name) {
-            Some(n) => vec![n.id],
-            None => return format!("No entity found: {}", entity_name),
-        }
-    } else {
-        matching_nodes.iter().map(|n| n.id).collect()
-    };
-
-    let display_name = matching_nodes.first().map(|n| n.name.clone()).unwrap_or_else(|| entity_name.to_string());
+    let display_name = matching_nodes
+        .first()
+        .map(|n| n.name.clone())
+        .unwrap_or_else(|| entity_name.to_string());
     let mut output = format!("## Impact: {}\n\n", display_name);
 
     // Get all neighbors across ALL matching nodes
@@ -106,6 +91,25 @@ pub fn impact_analysis(kg: &KnowledgeGraph, entity_name: &str, depth: usize) -> 
     output
 }
 
+pub fn reference_files_for_entity(kg: &KnowledgeGraph, entity_name: &str) -> BTreeSet<String> {
+    let target_ids: BTreeSet<u64> = resolve_matching_nodes(kg, entity_name)
+        .into_iter()
+        .map(|node| node.id)
+        .collect();
+    if target_ids.is_empty() {
+        return BTreeSet::new();
+    }
+
+    kg.edges
+        .iter()
+        .filter(|edge| target_ids.contains(&edge.to))
+        .filter_map(|edge| match &edge.source {
+            Source::CodeAnalysis { file } => Some(normalize_file_path(file)),
+            _ => None,
+        })
+        .collect()
+}
+
 fn detect_breaking_changes(
     source: &Source,
     name: &str,
@@ -130,6 +134,28 @@ fn detect_breaking_changes(
             }
         }
     }
+}
+
+fn resolve_matching_nodes<'a>(kg: &'a KnowledgeGraph, entity_name: &str) -> Vec<&'a crate::model::Node> {
+    let matching_nodes: Vec<_> = kg
+        .all_nodes()
+        .filter(|n| n.name == entity_name && n.node_type != "File" && n.node_type != "Import")
+        .collect();
+
+    if !matching_nodes.is_empty() {
+        return matching_nodes;
+    }
+
+    let suffix = format!(".{}", entity_name);
+    let suffix_matches: Vec<_> = kg
+        .all_nodes()
+        .filter(|n| n.name.ends_with(&suffix) && n.node_type != "Import")
+        .collect();
+    if !suffix_matches.is_empty() {
+        return suffix_matches;
+    }
+
+    kg.lookup(entity_name).into_iter().collect()
 }
 
 /// Parse a tool input JSON (Edit/Write) and run impact analysis on affected entities.

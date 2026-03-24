@@ -1,0 +1,14 @@
+[[repositories]]
+name = "fastapi"
+url = "https://github.com/fastapi/fastapi.git"
+commit = "25a3697cedc6e7dfb84e93c8ff965801486f00f4"
+
+[[repositories]]
+name = "httpx"
+url = "https://github.com/encode/httpx.git"
+commit = "b5addb64f0161ff6bfe94c124ef76f6a1fba5254"
+
+[[repositories]]
+name = "trpc"
+url = "https://github.com/trpc/trpc.git"
+commit = "9b42e02fa7acf2f203b4b1c77c12e41b7a04b4fb"

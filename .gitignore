@@ -10,6 +10,7 @@ build/
 *.kg.tmp
 *.idx
 .env
+.chartcode/
 .claude/rules/
 .claude/settings.json
 .claude-plugin-bak/

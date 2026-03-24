@@ -566,6 +566,24 @@ fn extract_ref_universal(
         }
     }
 
+    // Python class inheritance: class Child(Base): ...
+    if matches!(style, LangStyle::Python) && kind == "class_definition" {
+        if let Some(superclasses) = node.child_by_field_name("superclasses") {
+            let mut names = std::collections::BTreeSet::new();
+            collect_python_superclass_names(&superclasses, source, &mut names);
+            for name in names {
+                if !is_builtin(&name, style) && !is_primitive_type(&name, style) {
+                    refs.push(CodeReference {
+                        source_file: file.into(),
+                        source_line: node.start_position().row + 1,
+                        target_name: name,
+                        ref_type: RefType::UsesType,
+                    });
+                }
+            }
+        }
+    }
+
     // ── KEYWORD ARGUMENTS (Python: password_hash=value → WritesField) ──
     if kind == "keyword_argument" {
         if let Some(name_node) = node.child_by_field_name("name") {
@@ -654,6 +672,46 @@ fn extract_ref_universal(
             });
         }
     }
+}
+
+fn collect_python_superclass_names(
+    node: &tree_sitter::Node,
+    source: &[u8],
+    names: &mut std::collections::BTreeSet<String>,
+) {
+    match node.kind() {
+        "attribute" => {
+            if let Some(attr) = node.child_by_field_name("attribute") {
+                let name = node_text(&attr, source).to_string();
+                if looks_like_python_type_name(&name) {
+                    names.insert(name);
+                }
+            }
+        }
+        "dotted_name" => {
+            if let Some(name) = node_text(node, source).rsplit('.').next() {
+                if looks_like_python_type_name(name) {
+                    names.insert(name.to_string());
+                }
+            }
+        }
+        "identifier" => {
+            let name = node_text(node, source).to_string();
+            if looks_like_python_type_name(&name) {
+                names.insert(name);
+            }
+        }
+        _ => {}
+    }
+
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_python_superclass_names(&child, source, names);
+    }
+}
+
+fn looks_like_python_type_name(name: &str) -> bool {
+    name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false)
 }
 
 fn is_builtin(name: &str, style: LangStyle) -> bool {
@@ -1556,6 +1614,23 @@ from pathlib import Path
         // References
         assert!(refs.iter().any(|r| r.target_name == "get_user" && r.ref_type == RefType::MethodCall),
             "Should find method call: {:?}", refs);
+    }
+
+    #[test]
+    fn test_parse_file_python_class_inheritance_reference() {
+        let code = r#"
+class TimeoutException(Exception):
+    pass
+
+class ReadTimeout(TimeoutException):
+    pass
+"#;
+        let (_entities, refs) = parse_file(code, "httpx/_exceptions.py");
+        assert!(
+            refs.iter().any(|r| r.target_name == "TimeoutException" && r.ref_type == RefType::UsesType),
+            "Should find class inheritance reference to TimeoutException: {:?}",
+            refs
+        );
     }
 
     #[test]

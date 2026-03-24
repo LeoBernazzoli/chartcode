@@ -1,0 +1,9 @@
+name = "httpx-timeoutexception"
+repo = "httpx"
+entity = "TimeoutException"
+expected_files = [
+  "httpx/__init__.py",
+  "httpx/_exceptions.py",
+  "httpx/_transports/default.py",
+  "tests/test_timeouts.py",
+]

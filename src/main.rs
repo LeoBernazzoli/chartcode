@@ -167,6 +167,41 @@ fn main() {
                 println!("Run /chartcode:start to complete extraction with LLM.");
             }
         }
+        "accuracy-bench" => {
+            let bench_dir = args
+                .iter()
+                .position(|a| a == "--bench-dir")
+                .and_then(|i| args.get(i + 1))
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("benchmarks"));
+            let cache_dir = args
+                .iter()
+                .position(|a| a == "--cache-dir")
+                .and_then(|i| args.get(i + 1))
+                .map(PathBuf::from)
+                .unwrap_or_else(|| {
+                    PathBuf::from(".chartcode")
+                        .join("benchmarks")
+                        .join("repos")
+                });
+            let case_filter = args
+                .iter()
+                .position(|a| a == "--case")
+                .and_then(|i| args.get(i + 1))
+                .map(|s| s.as_str());
+
+            let result = autoclaw::accuracy::run_benchmark_suite(
+                bench_dir.as_path(),
+                cache_dir.as_path(),
+                case_filter,
+            )
+            .unwrap_or_else(|e| {
+                eprintln!("Accuracy benchmark failed: {}", e);
+                std::process::exit(1);
+            });
+
+            println!("{}", autoclaw::accuracy::format_benchmark_report(&result));
+        }
         "impact" => {
             if args.len() < 3 {
                 eprintln!("Usage: chartcode impact <entity_name> [--depth N]");
@@ -550,6 +585,7 @@ Context (used by Claude Code hooks):
 Impact analysis:
   impact <entity> [--depth N]    Show all references + breaking changes
   impact-from-diff <json>        Impact analysis from an Edit/Write diff
+  accuracy-bench [opts]          Run accuracy benchmarks on pinned repos
 
 Ingestion:
   bootstrap [--config path]      Full project indexing (code + conversations)
